@@ -741,7 +741,9 @@ export default function AccountsPage() {
                   ) : (
                     uploadedLeads.map((lead, idx) => (
                       <tr key={idx}>
-                        <td style={{ fontWeight: 600 }}>{lead.name}</td>
+                        <td style={{ fontWeight: 600 }} title={lead.name || undefined}>
+                          {lead.name ? (Array.from(lead.name).length > 35 ? Array.from(lead.name).slice(0, 35).join('') + "..." : lead.name) : ""}
+                        </td>
                         <td style={{ fontFamily: "monospace" }}>{lead.phone}</td>
                         <td>{lead.platform && !/^\d{4}-\d{2}-\d{2}$/.test(lead.platform) ? lead.platform : "Unknown"}</td>
                         <td>

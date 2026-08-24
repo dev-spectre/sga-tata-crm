@@ -1752,7 +1752,9 @@ export default function DashboardPage() {
                     return (
                       <tr key={lead.id} style={isLeadLocked ? { background: "rgba(241, 245, 249, 0.35)" } : undefined}>
                         <td style={{ fontWeight: 600 }}>
-                          <div>{lead.name}</div>
+                          <div title={lead.name || undefined}>
+                            {lead.name ? (Array.from(lead.name).length > 35 ? Array.from(lead.name).slice(0, 35).join('') + "..." : lead.name) : ""}
+                          </div>
                           {lead.handledBy && (
                             <div style={{ marginTop: 4 }}>
                               <span
@@ -1796,7 +1798,9 @@ export default function DashboardPage() {
                         >
                           {(lead.phone || "").replace(/\D/g, '').length > 15 ? (lead.phone || "").slice(0, 15) + "..." : (lead.phone || "")}
                         </td>
-                        <td>{lead.city || "—"}</td>
+                        <td title={lead.city || undefined}>
+                          {lead.city ? (Array.from(lead.city).length > 20 ? Array.from(lead.city).slice(0, 20).join('') + "..." : lead.city) : "—"}
+                        </td>
                         <td title={lead.adname || undefined} style={{ maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {lead.adname || "—"}
                         </td>

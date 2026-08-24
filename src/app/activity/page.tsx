@@ -1064,7 +1064,9 @@ export default function UserActivityPage() {
                         <tr key={lead.id} style={{ borderBottom: "1px solid rgba(148, 163, 184, 0.15)" }}>
                           {/* Name & Contact */}
                           <td style={{ padding: "14px 18px" }}>
-                            <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>{lead.name}</div>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }} title={lead.name || undefined}>
+                              {lead.name ? (Array.from(lead.name).length > 35 ? Array.from(lead.name).slice(0, 35).join('') + "..." : lead.name) : ""}
+                            </div>
                             {lead.handledBy && (
                               <div style={{ marginTop: 3 }}>
                                 <span
@@ -1103,7 +1105,9 @@ export default function UserActivityPage() {
                                   <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                   <circle cx="12" cy="10" r="3"></circle>
                                 </svg>
-                                {lead.city}
+                                <span title={lead.city || undefined}>
+                                  {lead.city ? (Array.from(lead.city).length > 20 ? Array.from(lead.city).slice(0, 20).join('') + "..." : lead.city) : ""}
+                                </span>
                               </div>
                             )}
                           </td>
