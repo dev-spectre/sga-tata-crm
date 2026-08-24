@@ -169,16 +169,55 @@ export async function getGoogleAccountEmail(): Promise<string | null> {
   return settings?.googleAccountEmail || null;
 }
 
+// --- Quota Protection, Rate Limiting & Exponential Backoff ---
+let lastGoogleRequestTime = 0;
+const MIN_REQUEST_INTERVAL_MS = 250; // Max 4 requests/sec (safely under Google's 60 req/min quota)
+
+export async function executeWithRetry<T>(
+  fn: () => Promise<T>,
+  retries = 4,
+  delayMs = 1500
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const status = err?.status || err?.response?.status || err?.code;
+    const isRateLimit = status === 429 || err?.message?.includes('Quota exceeded') || err?.message?.includes('RATE_LIMIT_EXCEEDED') || err?.message?.includes('User Rate Limit Exceeded');
+    const isServerTransient = status === 500 || status === 503 || status === 502;
+
+    if ((isRateLimit || isServerTransient) && retries > 0) {
+      const jitter = Math.floor(Math.random() * 500);
+      const waitTime = delayMs + jitter;
+      console.warn(`[Google Sheets API] Quota / rate limit hit (${status}). Retrying in ${waitTime}ms... (${retries} retries left)`);
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      return executeWithRetry(fn, retries - 1, delayMs * 2);
+    }
+    throw err;
+  }
+}
+
+export async function throttleRequest<T>(fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const timeSinceLast = now - lastGoogleRequestTime;
+  if (timeSinceLast < MIN_REQUEST_INTERVAL_MS) {
+    await new Promise((resolve) => setTimeout(resolve, MIN_REQUEST_INTERVAL_MS - timeSinceLast));
+  }
+  lastGoogleRequestTime = Date.now();
+  return executeWithRetry(fn);
+}
+
 export async function listSpreadsheets() {
   const auth = await getAuthenticatedClient();
   const drive = google.drive({ version: 'v3', auth });
   
-  const response = await drive.files.list({
-    q: "mimeType='application/vnd.google-apps.spreadsheet'",
-    fields: 'files(id, name, modifiedTime)',
-    orderBy: 'modifiedTime desc',
-    pageSize: 50,
-  });
+  const response = await throttleRequest(() =>
+    drive.files.list({
+      q: "mimeType='application/vnd.google-apps.spreadsheet'",
+      fields: 'files(id, name, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      pageSize: 50,
+    })
+  );
   
   return response.data.files || [];
 }
@@ -187,10 +226,12 @@ export async function getSheetNames(spreadsheetId: string) {
   const auth = await getAuthenticatedClient();
   const sheets = google.sheets({ version: 'v4', auth });
   
-  const response = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties.title',
-  });
+  const response = await throttleRequest(() =>
+    sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets.properties.title',
+    })
+  );
   
   return response.data.sheets?.map((s: { properties?: { title?: string | null } | null }) => s.properties?.title || '') || [];
 }
@@ -199,10 +240,12 @@ export async function getSheetData(spreadsheetId: string, sheetName: string) {
   const auth = await getAuthenticatedClient();
   const sheets = google.sheets({ version: 'v4', auth });
   
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${sheetName}`,
-  });
+  const response = await throttleRequest(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}`,
+    })
+  );
   
   return response.data.values || [];
 }
@@ -226,14 +269,16 @@ export async function updateSheetCell(
   }
   const range = `${sheetName}!${colLetter}${row}`;
   
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [[value]],
-    },
-  });
+  await throttleRequest(() =>
+    sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [[value]],
+      },
+    })
+  );
 }
 
 export async function updateSheetRow(
@@ -258,13 +303,59 @@ export async function updateSheetRow(
     };
   });
   
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      valueInputOption: 'USER_ENTERED',
-      data,
-    },
-  });
+  await throttleRequest(() =>
+    sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'USER_ENTERED',
+        data,
+      },
+    })
+  );
+}
+
+/**
+ * Bulk updates multiple rows and cells across the Google Sheet in a single API call.
+ * Slashes API quota consumption by combining 100+ separate requests into 1 batch.
+ */
+export async function batchUpdateSheetRows(
+  spreadsheetId: string,
+  sheetName: string,
+  rowUpdates: { row: number; colValues: { col: number; value: string }[] }[]
+) {
+  if (!rowUpdates || rowUpdates.length === 0) return;
+  const auth = await getAuthenticatedClient();
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  const allValueRanges = rowUpdates.flatMap(({ row, colValues }) =>
+    colValues.map(({ col, value }) => {
+      let colLetter = '';
+      let tempCol = col;
+      while (tempCol >= 0) {
+        colLetter = String.fromCharCode(65 + (tempCol % 26)) + colLetter;
+        tempCol = Math.floor(tempCol / 26) - 1;
+      }
+      return {
+        range: `${sheetName}!${colLetter}${row}`,
+        values: [[value]],
+      };
+    })
+  );
+
+  // Chunk in batches of 500 ranges per single HTTP request to adhere to payload limits
+  const chunkSize = 500;
+  for (let i = 0; i < allValueRanges.length; i += chunkSize) {
+    const chunk = allValueRanges.slice(i, i + chunkSize);
+    await throttleRequest(() =>
+      sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: 'USER_ENTERED',
+          data: chunk,
+        },
+      })
+    );
+  }
 }
 
 export async function appendSheetRow(
@@ -275,15 +366,17 @@ export async function appendSheetRow(
   const auth = await getAuthenticatedClient();
   const sheets = google.sheets({ version: 'v4', auth });
   
-  const response = await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `${sheetName}!A1`,
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: {
-      values: [rowValues],
-    },
-  });
+  const response = await throttleRequest(() =>
+    sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${sheetName}!A1`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: [rowValues],
+      },
+    })
+  );
   return response.data;
 }
 
@@ -296,10 +389,12 @@ export async function clearSheetRow(
   const sheets = google.sheets({ version: 'v4', auth });
   
   const range = `${sheetName}!A${row}:ZZ${row}`;
-  await sheets.spreadsheets.values.clear({
-    spreadsheetId,
-    range,
-  });
+  await throttleRequest(() =>
+    sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range,
+    })
+  );
 }
 
 export async function deleteSheetRow(
@@ -310,10 +405,12 @@ export async function deleteSheetRow(
   const auth = await getAuthenticatedClient();
   const sheets = google.sheets({ version: 'v4', auth });
 
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: 'sheets.properties(sheetId,title)',
-  });
+  const spreadsheet = await throttleRequest(() =>
+    sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: 'sheets.properties(sheetId,title)',
+    })
+  );
 
   const targetSheet = spreadsheet.data.sheets?.find(
     (s: { properties?: { title?: string | null } | null }) => s.properties?.title === sheetName
@@ -321,23 +418,25 @@ export async function deleteSheetRow(
 
   const numericSheetId = targetSheet?.properties?.sheetId ?? 0;
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          deleteDimension: {
-            range: {
-              sheetId: numericSheetId,
-              dimension: 'ROWS',
-              startIndex: row - 1,
-              endIndex: row,
+  await throttleRequest(() =>
+    sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId: numericSheetId,
+                dimension: 'ROWS',
+                startIndex: row - 1,
+                endIndex: row,
+              },
             },
           },
-        },
-      ],
-    },
-  });
+        ],
+      },
+    })
+  );
 }
 
 export async function cleanEmptySheetRows(
@@ -351,10 +450,12 @@ export async function cleanEmptySheetRows(
     const rows = await getSheetData(spreadsheetId, sheetName);
     if (!rows || rows.length <= 1) return;
 
-    const spreadsheet = await sheets.spreadsheets.get({
-      spreadsheetId,
-      fields: 'sheets.properties(sheetId,title)',
-    });
+    const spreadsheet = await throttleRequest(() =>
+      sheets.spreadsheets.get({
+        spreadsheetId,
+        fields: 'sheets.properties(sheetId,title)',
+      })
+    );
 
     const targetSheet = spreadsheet.data.sheets?.find(
       (s: { properties?: { title?: string | null } | null }) => s.properties?.title === sheetName
@@ -384,10 +485,12 @@ export async function cleanEmptySheetRows(
         },
       }));
 
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: { requests },
-      });
+      await throttleRequest(() =>
+        sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: { requests },
+        })
+      );
     }
   } catch (err) {
     console.error('Clean empty sheet rows error:', err);

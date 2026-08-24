@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { getSheetData, updateSheetRow } from '@/lib/google';
+import { getSheetData, batchUpdateSheetRows } from '@/lib/google';
 import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
 import { getCachedSettings } from '@/lib/settings';
 
@@ -397,18 +397,16 @@ export async function performSheetSync() {
     await Promise.all(updatePromises);
   }
 
-  // 4. Correct Mismatched Google Sheet Rows to Match Authoritative DB Data
+  // 4. Correct Mismatched Google Sheet Rows to Match Authoritative DB Data (Single Bulk API Request)
   if (sheetUpdatesToCorrect.length > 0 && settings.selectedSpreadsheetId && settings.selectedSheetName) {
-    const sId = settings.selectedSpreadsheetId;
-    const sName = settings.selectedSheetName;
-    for (let i = 0; i < sheetUpdatesToCorrect.length; i += 10) {
-      const chunk = sheetUpdatesToCorrect.slice(i, i + 10);
-      const correctionPromises = chunk.map(c =>
-        updateSheetRow(sId, sName, c.rowNumber, c.updates).catch(e => {
-          console.error(`Sheet correction failed for row ${c.rowNumber}:`, e);
-        })
+    try {
+      await batchUpdateSheetRows(
+        settings.selectedSpreadsheetId,
+        settings.selectedSheetName,
+        sheetUpdatesToCorrect.map(c => ({ row: c.rowNumber, colValues: c.updates }))
       );
-      await Promise.all(correctionPromises);
+    } catch (sheetErr) {
+      console.error('Failed to batch-correct mismatched Google Sheet rows:', sheetErr);
     }
   }
 
