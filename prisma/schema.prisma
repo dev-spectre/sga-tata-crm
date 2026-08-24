@@ -8,33 +8,31 @@ datasource db {
 }
 
 model Lead {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String
-  city          String    @default("")
-  adname        String    @default("")
-  branch        String    @default("")
-  followUpDate1 DateTime?
-  followUpDate2 DateTime?
-  remark        String?
-  status    String   @default("not_contacted")
-  sheetRow  Int?
-  sheetId   String?
-  fingerprint String?   @unique
+  id                 Int            @id @default(autoincrement())
+  name               String
+  phone              String
+  city               String         @default("")
+  adname             String         @default("")
+  branch             String         @default("")
+  followUpDate1      DateTime?
+  followUpDate2      DateTime?
+  remark             String?
+  status             String         @default("not_contacted")
+  sheetRow           Int?
+  sheetId            String?
+  fingerprint        String?        @unique
   assignedConsultant String?
-  testDrive String?
-  platform  String?
-  source    String   @default("System")
-  uploadedById Int?
-  uploadedBy   User?   @relation(name: "UserUploadedLeads", fields: [uploadedById], references: [id], onDelete: SetNull)
-  uploadedAt DateTime?
-
-  notifiedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  hiddenBy   HiddenLead[]
-  activities LeadActivity[]
+  testDrive          String?
+  platform           String?
+  source             String         @default("System")
+  uploadedById       Int?
+  uploadedAt         DateTime?
+  notifiedAt         DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  hiddenBy           HiddenLead[]
+  uploadedBy         User?          @relation("UserUploadedLeads", fields: [uploadedById], references: [id])
+  activities         LeadActivity[]
 
   @@index([createdAt])
   @@index([updatedAt])
@@ -44,32 +42,31 @@ model Lead {
 }
 
 model User {
-  id             Int          @id @default(autoincrement())
-  username       String       @unique
-  password       String
-  role           String       @default("USER") // "ADMIN" or "USER"
-  assignedBranch String?      // Optional branch assignment, e.g., "coimbatore" or null for all branches
-  assignedPlatform String?    // Optional platform assignment, e.g., "Meta" or null
-  allowExternalUpload Boolean  @default(false)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-
-  hiddenLeads    HiddenLead[]
-  uploadedLeads  Lead[]        @relation(name: "UserUploadedLeads")
-  activities     LeadActivity[]
+  id                  Int            @id @default(autoincrement())
+  username            String         @unique
+  password            String
+  role                String         @default("USER")
+  assignedBranch      String?
+  assignedPlatform    String?
+  allowExternalUpload Boolean        @default(false)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  hiddenLeads         HiddenLead[]
+  uploadedLeads       Lead[]         @relation("UserUploadedLeads")
+  activities          LeadActivity[]
 }
 
 model LeadActivity {
-  id         Int      @id @default(autoincrement())
-  leadId     Int
-  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  userId     Int?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  username   String
-  action     String   // e.g. "STATUS_CHANGE", "REMARK_UPDATE", "FOLLOWUP_DATE_1", "FOLLOWUP_DATE_2", "CONSULTANT_ASSIGN", "TEST_DRIVE", "EXTERNAL_UPLOAD"
-  oldValue   String?
-  newValue   String?
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  userId    Int?
+  username  String
+  action    String
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id])
 
   @@index([leadId])
   @@index([userId])
@@ -79,10 +76,10 @@ model LeadActivity {
 model HiddenLead {
   id        Int      @id @default(autoincrement())
   userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   leadId    Int
-  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, leadId])
   @@index([userId])
@@ -90,20 +87,20 @@ model HiddenLead {
 }
 
 model Settings {
-  id                    Int       @id @default(1)
-  googleAccessToken     String?
-  googleRefreshToken    String?
-  googleTokenExpiry     DateTime?
-  googleAccountEmail    String?
-  selectedSpreadsheetId String?
-  selectedSpreadsheetName String?
-  selectedSheetName     String?
-  notificationInterval  Int       @default(5)
-  backgroundNotificationsEnabled Boolean @default(true)
-  columnMapping         String?
-  notifiedPhones        String?   @default("[]")
-  lastSyncAt            DateTime?
-  updatedAt             DateTime  @updatedAt
+  id                             Int       @id @default(1)
+  googleAccessToken              String?
+  googleRefreshToken             String?
+  googleTokenExpiry              DateTime?
+  googleAccountEmail             String?
+  selectedSpreadsheetId          String?
+  selectedSpreadsheetName        String?
+  selectedSheetName              String?
+  notificationInterval           Int       @default(5)
+  backgroundNotificationsEnabled Boolean   @default(true)
+  columnMapping                  String?
+  notifiedPhones                 String?   @default("[]")
+  lastSyncAt                     DateTime?
+  updatedAt                      DateTime  @updatedAt
 }
 
 model PushSubscription {
