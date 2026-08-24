@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { invalidatePushSubscriptionsCache } from '@/lib/notifications';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,6 +30,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    invalidatePushSubscriptionsCache();
+
     return NextResponse.json({ success: true, subscription: savedSub });
   } catch (error) {
     console.error('Push subscribe error:', error);
@@ -45,6 +48,7 @@ export async function DELETE(request: NextRequest) {
       await prisma.pushSubscription.deleteMany({
         where: { endpoint },
       });
+      invalidatePushSubscriptionsCache();
     }
 
     return NextResponse.json({ success: true });
@@ -53,3 +57,4 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to unsubscribe' }, { status: 500 });
   }
 }
+

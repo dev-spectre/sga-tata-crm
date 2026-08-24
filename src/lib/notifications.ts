@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { parsePhoneNumber } from './utils';
 import { performSheetSync } from './sync';
+import { getCachedSettings } from './settings';
 import webpush from 'web-push';
 
 const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -16,6 +17,22 @@ if (publicVapidKey && privateVapidKey) {
 }
 
 const lastSentPayloads = new Map<string, { body: string; time: number }>();
+let cachedSubscriptions: { data: any[]; timestamp: number } | null = null;
+const SUB_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+export async function getCachedPushSubscriptions() {
+  const now = Date.now();
+  if (cachedSubscriptions && now - cachedSubscriptions.timestamp < SUB_CACHE_TTL_MS) {
+    return cachedSubscriptions.data;
+  }
+  const subscriptions = await prisma.pushSubscription.findMany();
+  cachedSubscriptions = { data: subscriptions, timestamp: now };
+  return subscriptions;
+}
+
+export function invalidatePushSubscriptionsCache() {
+  cachedSubscriptions = null;
+}
 
 export async function sendWebPushNotifications(payload: { title: string; body: string; url?: string }) {
   if (!publicVapidKey || !privateVapidKey) {
@@ -23,7 +40,7 @@ export async function sendWebPushNotifications(payload: { title: string; body: s
   }
 
   try {
-    const subscriptions = await prisma.pushSubscription.findMany();
+    const subscriptions = await getCachedPushSubscriptions();
     const now = new Date();
 
     const pushPromises = subscriptions.map(async (sub) => {
@@ -59,6 +76,7 @@ export async function sendWebPushNotifications(payload: { title: string; body: s
       } catch (err: any) {
         console.error(`Web Push delivery failed to ${sub.endpoint}:`, err?.message || err);
         if (err?.statusCode === 404 || err?.statusCode === 410) {
+          invalidatePushSubscriptionsCache();
           await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
         }
       }
@@ -75,18 +93,25 @@ export async function sendSystemNotification(title: string, message: string) {
   await sendWebPushNotifications({ title, body: message });
 }
 
+let activeSyncPromise: Promise<any> | null = null;
+
 export async function checkAndNotify() {
   try {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await getCachedSettings();
     if (settings && settings.backgroundNotificationsEnabled === false) {
       return { notified: 0, interval: settings.notificationInterval || 15, disabled: true };
     }
 
-    // 1. Perform automatic sheet sync in background (with 5s max timeout to prevent HTTP timeout)
+    // 1. Perform automatic sheet sync in background (debounced to avoid multiple concurrent syncs)
     let newLeadsSynced = 0;
     try {
+      if (!activeSyncPromise) {
+        activeSyncPromise = performSheetSync().finally(() => {
+          activeSyncPromise = null;
+        });
+      }
       const syncTimeout = new Promise((resolve) => setTimeout(() => resolve({ synced: 0, timeout: true }), 5000));
-      const syncResult: any = await Promise.race([performSheetSync(), syncTimeout]);
+      const syncResult: any = await Promise.race([activeSyncPromise, syncTimeout]);
       newLeadsSynced = syncResult?.synced || 0;
     } catch (syncErr) {
       console.error('Auto background sync warning:', syncErr);
@@ -194,7 +219,7 @@ export function stopNotificationLoop() {
 }
 
 export async function restartNotificationLoop() {
-  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  const settings = await getCachedSettings();
   if (settings && settings.backgroundNotificationsEnabled === false) {
     stopNotificationLoop();
     return;
@@ -213,7 +238,7 @@ export async function processGradualNotifications() {
 
   isGradualDispatching = true;
   try {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await getCachedSettings();
     if (settings && settings.backgroundNotificationsEnabled === false) {
       console.log('🔕 Background notifications disabled in settings.');
       return;

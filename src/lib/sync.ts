@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
-import { getSheetData } from '@/lib/google';
+import { getSheetData, updateSheetRow } from '@/lib/google';
 import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
+import { getCachedSettings } from '@/lib/settings';
 
 interface ColumnMapping {
   name: number;
@@ -31,17 +32,17 @@ const DEFAULT_MAPPING: ColumnMapping = {
 };
 
 function isLowQualityLead(name: string, phone: string, city: string): boolean {
-  const hasName = name.trim().length > 0;
-  const hasPhone = phone.trim().length > 0;
-  const hasCity = city.trim().length > 0;
-  return !hasName && !hasPhone && !hasCity;
+  if (!name && !phone) return true;
+  if (!phone || phone.length < 5) return true;
+  const isJunkText = (val: string) => /^(n\/?a|null|nil|none|test|\.|\-)$/i.test(val.trim());
+  if ((!name || isJunkText(name)) && (!city || isJunkText(city))) return true;
+  return false;
 }
 
 export async function deduplicateDatabaseLeads() {
   try {
     const { executeDeleteDuplicateLeads } = await import('@/lib/deduplicate');
     const result = await executeDeleteDuplicateLeads();
-    console.log(`🧹 Deduplicated ${result.duplicateCount} duplicate entries in database.`);
     return result;
   } catch (err) {
     console.error('Failed to deduplicate database leads:', err);
@@ -51,7 +52,7 @@ export async function deduplicateDatabaseLeads() {
 
 export async function performSheetSync() {
   try {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await getCachedSettings();
 
     if (!settings?.selectedSpreadsheetId || !settings?.selectedSheetName || !settings?.googleAccessToken) {
       return { synced: 0, duplicates: 0, skippedLowQuality: 0, skippedDuplicates: 0, total: 0, error: 'Settings not configured' };
@@ -73,33 +74,69 @@ export async function performSheetSync() {
   let skippedLowQuality = 0;
   let skippedDuplicates = 0;
 
-  // 1. Fetch DB State in Bulk (Only query system/sheet leads, never external uploads)
-  const existingLeads = await prisma.lead.findMany({
-    where: {
-      source: { not: 'External Upload' },
-      uploadedById: null,
-    },
-    select: {
-      id: true,
-      fingerprint: true,
-      remark: true,
-      status: true,
-      name: true,
-      phone: true,
-      city: true,
-      adname: true,
-      branch: true,
-      followUpDate1: true,
-      followUpDate2: true,
-      sheetRow: true,
-      assignedConsultant: true,
-      testDrive: true,
-      platform: true,
-      source: true,
-      uploadedById: true,
-      sheetId: true,
-    },
-  });
+  // 1. Scan sheet rows in memory to collect search keys (phones, fingerprints, row numbers)
+  const candidatePhones = new Set<string>();
+  const candidateFingerprints = new Set<string>();
+  const candidateRows = new Set<number>();
+  const preScanCounts = new Map<string, number>();
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const row = dataRows[i];
+    const rowNum = i + 2;
+    candidateRows.add(rowNum);
+
+    const rawPhone = (row[mapping.phone] || '').toString();
+    const phone = parsePhoneNumber(rawPhone);
+    if (phone) candidatePhones.add(phone);
+
+    const createdAtRaw = (row[mapping.createdAt] || '').toString().trim();
+    const baseFp = `${phone}|${createdAtRaw}`;
+    const cnt = preScanCounts.get(baseFp) || 0;
+    preScanCounts.set(baseFp, cnt + 1);
+    candidateFingerprints.add(`${baseFp}|${cnt}`);
+  }
+
+  // 2. Fetch only matching DB leads (slashing egress from 2,700+ rows down to matching subset)
+  const orConditions: any[] = [];
+  if (candidatePhones.size > 0) {
+    orConditions.push({ phone: { in: Array.from(candidatePhones) } });
+  }
+  if (candidateFingerprints.size > 0) {
+    orConditions.push({ fingerprint: { in: Array.from(candidateFingerprints) } });
+  }
+  if (candidateRows.size > 0) {
+    orConditions.push({ sheetRow: { in: Array.from(candidateRows) } });
+  }
+
+  const existingLeads = orConditions.length > 0
+    ? await prisma.lead.findMany({
+        where: {
+          source: { not: 'External Upload' },
+          uploadedById: null,
+          OR: orConditions,
+        },
+        select: {
+          id: true,
+          fingerprint: true,
+          remark: true,
+          status: true,
+          name: true,
+          phone: true,
+          city: true,
+          adname: true,
+          branch: true,
+          followUpDate1: true,
+          followUpDate2: true,
+          sheetRow: true,
+          assignedConsultant: true,
+          testDrive: true,
+          platform: true,
+          source: true,
+          uploadedById: true,
+          sheetId: true,
+        },
+      })
+    : [];
 
   const existingByFingerprint = new Map<string, typeof existingLeads[0]>();
   const existingByPhone = new Map<string, typeof existingLeads[0]>();
@@ -125,6 +162,7 @@ export async function performSheetSync() {
 
   const toCreate: any[] = [];
   const toUpdate: { id: number; data: any }[] = [];
+  const sheetUpdatesToCorrect: { rowNumber: number; updates: { col: number; value: string }[] }[] = [];
 
   // 2. In-Memory Reconciliation
   for (let i = 0; i < dataRows.length; i++) {
@@ -219,23 +257,70 @@ export async function performSheetSync() {
     if (existing) {
       activeDbIds.add(existing.id);
 
-      // Prioritize an intentional empty string in the DB over the sheet's remark
-      const finalRemark = existing.remark === "" ? "" : (remark || existing.remark);
-      
-      const normalizedExistingStatus = existing.status === 'created' ? 'not_contacted' : existing.status === 'closed_successful' ? 'live' : existing.status === 'closed_unsuccessful' ? 'lost' : existing.status;
-      const finalStatus = statusRaw ? status : (normalizedExistingStatus || 'not_contacted');
+      // RULE: DB takes absolute priority over Google Sheets for status, remark, follow-up dates, test drive, and assigned consultant.
+      const finalStatus = existing.status || (statusRaw ? status : 'not_contacted');
+      const finalRemark = existing.remark !== null && existing.remark !== undefined ? existing.remark : (remark || null);
+      const finalFollowUpDate1 = existing.followUpDate1 !== null && existing.followUpDate1 !== undefined ? existing.followUpDate1 : followUpDate1;
+      const finalFollowUpDate2 = existing.followUpDate2 !== null && existing.followUpDate2 !== undefined ? existing.followUpDate2 : followUpDate2;
 
-      // Only queue DB update if data actually changed
+      // Check if Sheet row has mismatched values and queue corrections to write back to Google Sheet
+      const corrections: { col: number; value: string }[] = [];
+
+      // 1. Status Mismatch Correction
+      if (mapping.status !== undefined && mapping.status >= 0) {
+        const normExistingStatus = (existing.status === 'created' ? 'not_contacted' : existing.status === 'closed_successful' ? 'live' : existing.status === 'closed_unsuccessful' ? 'lost' : existing.status) || 'not_contacted';
+        let formattedDbStatus = 'Not Contacted';
+        if (normExistingStatus === 'pending') formattedDbStatus = 'Contacted';
+        else if (normExistingStatus === 'live') formattedDbStatus = 'Completed';
+        else if (normExistingStatus === 'lost') formattedDbStatus = 'Lost';
+
+        const rawSheetStatusStr = (row[mapping.status] || '').toString().trim();
+        const normSheetStatus = parseSheetStatus(rawSheetStatusStr.toLowerCase());
+
+        if (rawSheetStatusStr && normSheetStatus !== normExistingStatus) {
+          corrections.push({ col: mapping.status, value: formattedDbStatus });
+        }
+      }
+
+      // 2. Remark Mismatch Correction
+      if (mapping.remark !== undefined && mapping.remark >= 0) {
+        const rawSheetRemark = (row[mapping.remark] || '').toString();
+        const cleanSheetRemark = sanitizeField(rawSheetRemark) || '';
+        const dbRemark = existing.remark || '';
+        if (existing.remark !== null && existing.remark !== undefined && cleanSheetRemark !== dbRemark) {
+          corrections.push({ col: mapping.remark, value: dbRemark });
+        }
+      }
+
+      // 3. Follow Up Date 1 Mismatch Correction
+      if (mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0) {
+        const dbF1 = existing.followUpDate1 ? existing.followUpDate1.toISOString().split('T')[0] : '';
+        const sheetF1 = followUpDate1 ? followUpDate1.toISOString().split('T')[0] : '';
+        if (existing.followUpDate1 && dbF1 !== sheetF1) {
+          corrections.push({ col: mapping.followUpDate1, value: dbF1 });
+        }
+      }
+
+      // 4. Follow Up Date 2 Mismatch Correction
+      if (mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0) {
+        const dbF2 = existing.followUpDate2 ? existing.followUpDate2.toISOString().split('T')[0] : '';
+        const sheetF2 = followUpDate2 ? followUpDate2.toISOString().split('T')[0] : '';
+        if (existing.followUpDate2 && dbF2 !== sheetF2) {
+          corrections.push({ col: mapping.followUpDate2, value: dbF2 });
+        }
+      }
+
+      if (corrections.length > 0 && rowNumber) {
+        sheetUpdatesToCorrect.push({ rowNumber, updates: corrections });
+      }
+
+      // Only queue DB update if metadata (like name, phone, city, branch, adname, platform, sheetRow) changed from sheet
       if (
         existing.name !== name ||
         existing.phone !== phone ||
         existing.city !== city ||
         existing.adname !== adname ||
         existing.branch !== branch ||
-        existing.followUpDate1?.getTime() !== followUpDate1?.getTime() ||
-        existing.followUpDate2?.getTime() !== followUpDate2?.getTime() ||
-        existing.remark !== finalRemark ||
-        existing.status !== finalStatus ||
         existing.platform !== platform ||
         existing.sheetRow !== rowNumber
       ) {
@@ -247,8 +332,8 @@ export async function performSheetSync() {
             city,
             adname,
             branch,
-            followUpDate1,
-            followUpDate2,
+            followUpDate1: finalFollowUpDate1,
+            followUpDate2: finalFollowUpDate2,
             remark: finalRemark,
             status: finalStatus,
             platform,
@@ -310,6 +395,21 @@ export async function performSheetSync() {
       })
     );
     await Promise.all(updatePromises);
+  }
+
+  // 4. Correct Mismatched Google Sheet Rows to Match Authoritative DB Data
+  if (sheetUpdatesToCorrect.length > 0 && settings.selectedSpreadsheetId && settings.selectedSheetName) {
+    const sId = settings.selectedSpreadsheetId;
+    const sName = settings.selectedSheetName;
+    for (let i = 0; i < sheetUpdatesToCorrect.length; i += 10) {
+      const chunk = sheetUpdatesToCorrect.slice(i, i + 10);
+      const correctionPromises = chunk.map(c =>
+        updateSheetRow(sId, sName, c.rowNumber, c.updates).catch(e => {
+          console.error(`Sheet correction failed for row ${c.rowNumber}:`, e);
+        })
+      );
+      await Promise.all(correctionPromises);
+    }
   }
 
   // 4. Preserve All Database Leads

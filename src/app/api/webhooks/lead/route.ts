@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parsePhoneNumber } from '@/lib/utils';
+import { parsePhoneNumber, sanitizeField } from '@/lib/utils';
+import { getCachedSettings } from '@/lib/settings';
 import { checkAndNotify } from '@/lib/notifications';
 
 export async function POST(request: NextRequest) {
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await getCachedSettings();
     const sheetId = settings?.selectedSpreadsheetId || 'webhook';
 
     const nowIso = new Date().toISOString().slice(0, 10);

@@ -150,7 +150,7 @@ export default function DashboardPage() {
   const [tempEndDate, setTempEndDate] = useState("");
 
   const [primaryOrder, setPrimaryOrder] = useState<"desc" | "asc">("desc");
-  const [secondaryField, setSecondaryField] = useState("name");
+  const [secondaryField, setSecondaryField] = useState("");
   const [secondaryOrder, setSecondaryOrder] = useState<"asc" | "desc">("asc");
 
   const [username, setUsername] = useState<string>("");
@@ -366,6 +366,7 @@ export default function DashboardPage() {
 
   const handleHeaderClick = (field: string) => {
     if (field === "createdAt") {
+      setSecondaryField("");
       setPrimaryOrder(prev => (prev === "desc" ? "asc" : "desc"));
     } else {
       if (secondaryField === field) {
@@ -375,7 +376,6 @@ export default function DashboardPage() {
         setSecondaryOrder("asc");
       }
     }
-    setPagination(p => ({ ...p, page: 1 }));
   };
 
   const [apiBranches, setApiBranches] = useState<string[]>([]);
@@ -444,8 +444,6 @@ export default function DashboardPage() {
       params.set("page", pagination.page.toString());
       params.set("limit", "20");
       params.set("primaryOrder", primaryOrder);
-      params.set("secondaryField", secondaryField);
-      params.set("secondaryOrder", secondaryOrder);
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
       if (branchFilter) params.set("branch", branchFilter);
@@ -469,15 +467,19 @@ export default function DashboardPage() {
       const cachedData = prefetchCache.current[cacheKey];
 
       if (cachedData && !force) {
+        setAccessRestricted(false);
         setLeads(cachedData.leads);
-        setStats(cachedData.stats);
-        setPagination(prev => {
-          if (prev.total !== cachedData.pagination.total || prev.totalPages !== cachedData.pagination.totalPages) {
-            return { ...prev, total: cachedData.pagination.total, totalPages: cachedData.pagination.totalPages };
-          }
-          return prev;
-        });
+        if (cachedData.stats) setStats(cachedData.stats);
+        if (cachedData.pagination) {
+          setPagination(prev => {
+            if (prev.total !== cachedData.pagination.total || prev.totalPages !== cachedData.pagination.totalPages) {
+              return { ...prev, total: cachedData.pagination.total, totalPages: cachedData.pagination.totalPages };
+            }
+            return prev;
+          });
+        }
         setLoading(false);
+        return;
       }
 
       isFetchingRef.current = true;
@@ -559,7 +561,7 @@ export default function DashboardPage() {
         isFetchingRef.current = false;
       }
     }
-  }, [pagination.page, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, secondaryField, secondaryOrder, updateBranchWindow]);
+  }, [pagination.page, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, updateBranchWindow]);
 
 
   const filterStateRef = useRef({
@@ -635,6 +637,7 @@ export default function DashboardPage() {
           return;
         }
 
+        const prevSyncTimeStr = lastSyncTimestampRef.current;
         // Advance sync timestamp
         if (data.lastUpdated) {
           lastSyncTimestampRef.current = data.lastUpdated;
@@ -662,10 +665,18 @@ export default function DashboardPage() {
               return l;
             });
 
-            // If on page 1 and there are new incoming leads, prepend them in-place
-            const newIncoming = data.changedLeads.filter((l: Lead) => !existingIds.has(l.id));
-            if (newIncoming.length > 0 && filterStateRef.current.page === 1) {
-              updated = [...newIncoming, ...updated].slice(0, filterStateRef.current.limit || 20);
+            // If on page 1 and there are TRULY NEW incoming leads (created since previous sync), prepend them in-place
+            const prevSyncTime = prevSyncTimeStr ? new Date(prevSyncTimeStr).getTime() - 5000 : 0;
+            const newlyCreatedLeads = data.changedLeads.filter((l: Lead) => {
+              if (existingIds.has(l.id)) return false;
+              if (!l.createdAt) return false;
+              const createdTime = new Date(l.createdAt).getTime();
+              return prevSyncTime > 0 && createdTime >= prevSyncTime;
+            });
+
+            if (newlyCreatedLeads.length > 0 && filterStateRef.current.page === 1 && primaryOrder === 'desc') {
+              newlyCreatedLeads.sort((a: Lead, b: Lead) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+              updated = [...newlyCreatedLeads, ...updated].slice(0, filterStateRef.current.limit || 20);
             }
 
             return updated;
@@ -885,9 +896,51 @@ export default function DashboardPage() {
   }, [consultantsList, branchFilter, userRole, userAssignedBranch]);
 
   const displayedLeads = useMemo(() => {
-    if (!branchFilter) return leads;
-    return leads.filter(l => l.branch && parseBranches(l.branch).includes(branchFilter));
-  }, [leads, branchFilter]);
+    let result = leads;
+    if (branchFilter) {
+      result = result.filter(l => l.branch && parseBranches(l.branch).includes(branchFilter));
+    }
+    if (!result || result.length === 0) return result;
+
+    const list = [...result];
+
+    list.sort((a, b) => {
+      const dayA = toISTDateString(a.createdAt);
+      const dayB = toISTDateString(b.createdAt);
+
+      // Primary order: Created At date
+      if (dayA !== dayB) {
+        return primaryOrder === "desc" ? dayB.localeCompare(dayA) : dayA.localeCompare(dayB);
+      }
+
+      // Secondary order: sort same day data by secondaryField category
+      if (secondaryField) {
+        let valA: any = a[secondaryField as keyof Lead];
+        let valB: any = b[secondaryField as keyof Lead];
+
+        if (secondaryField === "followUpDate1" || secondaryField === "followUpDate2" || secondaryField === "createdAt") {
+          const tA = valA ? new Date(valA).getTime() : 0;
+          const tB = valB ? new Date(valB).getTime() : 0;
+          if (tA !== tB) {
+            return secondaryOrder === "asc" ? tA - tB : tB - tA;
+          }
+        } else {
+          valA = (valA ?? "").toString().toLowerCase().trim();
+          valB = (valB ?? "").toString().toLowerCase().trim();
+          if (valA !== valB) {
+            return secondaryOrder === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+          }
+        }
+      }
+
+      // Tie-breaker for same day: exact createdAt timestamp
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return primaryOrder === "desc" ? timeB - timeA : timeA - timeB;
+    });
+
+    return list;
+  }, [leads, branchFilter, secondaryField, secondaryOrder, primaryOrder]);
 
   const handleExportExcel = async () => {
     setExportLoading(true);
@@ -1489,6 +1542,22 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+            <div className="stat-card">
+              <div className="stat-label">Conversion Rate</div>
+              {(() => {
+                const total = stats.total || 0;
+                const completed = stats.live ?? stats.closedSuccessful ?? 0;
+                const rate = total > 0 ? ((completed / total) * 100).toFixed(1) : "0.0";
+                return (
+                  <div className="stat-value" style={{ color: "#059669", display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span>{rate}%</span>
+                    <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>
+                      ({completed}/{total})
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         );
       })()}
@@ -1719,7 +1788,7 @@ export default function DashboardPage() {
                     Follow Up {secondaryField === "followUpDate1" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
                   </th>
                   <th onClick={() => handleHeaderClick("createdAt")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Created At">
-                    Created At {primaryOrder === "desc" ? "↓" : "↑"}
+                    Created At {!secondaryField || secondaryField === "createdAt" ? (primaryOrder === "desc" ? "↓" : "↑") : ""}
                   </th>
                   <th onClick={() => handleHeaderClick("status")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Status">
                     Status {secondaryField === "status" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}

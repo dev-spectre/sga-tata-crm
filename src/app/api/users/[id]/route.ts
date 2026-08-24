@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, invalidateUserCache } from '@/lib/auth';
 import { hashPassword } from '@/lib/passwords';
+import { invalidateStaffUsersCache } from '@/lib/activity';
 
 export async function PATCH(
   request: NextRequest,
@@ -61,6 +62,9 @@ export async function PATCH(
       },
     });
 
+    invalidateStaffUsersCache();
+    invalidateUserCache(userId);
+
     return NextResponse.json({ user });
   } catch (error) {
     console.error('Error updating user:', error);
@@ -93,6 +97,9 @@ export async function DELETE(
     await prisma.user.delete({
       where: { id: userId },
     });
+
+    invalidateStaffUsersCache();
+    invalidateUserCache(userId);
 
     return NextResponse.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {

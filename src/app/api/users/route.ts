@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { hashPassword } from '@/lib/passwords';
+import { invalidateStaffUsersCache } from '@/lib/activity';
 
 export async function GET() {
   try {
@@ -95,6 +96,8 @@ export async function POST(request: NextRequest) {
         createdAt: true,
       },
     });
+
+    invalidateStaffUsersCache();
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (error) {

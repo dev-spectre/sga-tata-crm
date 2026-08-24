@@ -166,7 +166,15 @@ export async function verifyCredentials(username: string, password: string): Pro
     return token;
   }
 
-  export async function getCurrentUser(): Promise<UserSession | null> {
+const userCache = new Map<number, { user: any; timestamp: number }>();
+const USER_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
+export function invalidateUserCache(userId?: number): void {
+  if (userId) userCache.delete(userId);
+  else userCache.clear();
+}
+
+export async function getCurrentUser(): Promise<UserSession | null> {
     try {
       const cookieStore = await cookies();
       const token = cookieStore.get(COOKIE_NAME)?.value;
@@ -195,10 +203,20 @@ export async function verifyCredentials(username: string, password: string): Pro
 
       // Impersonated or DB user
       if (userId && userId > 0) {
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { id: true, username: true, role: true, assignedBranch: true, assignedPlatform: true, allowExternalUpload: true },
-        });
+        const now = Date.now();
+        const cached = userCache.get(userId);
+        let user = cached && now - cached.timestamp < USER_CACHE_TTL_MS ? cached.user : null;
+
+        if (!user) {
+          user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, username: true, role: true, assignedBranch: true, assignedPlatform: true, allowExternalUpload: true },
+          });
+          if (user) {
+            userCache.set(userId, { user, timestamp: now });
+          }
+        }
+
         if (user) {
           const isAdmin = user.role === 'ADMIN' || user.role === 'SUPERADMIN' || isSuperAdmin;
           return {

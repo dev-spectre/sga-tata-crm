@@ -3,10 +3,11 @@ import { prisma } from '@/lib/prisma';
 import { restartNotificationLoop } from '@/lib/notifications';
 import { getGoogleAccountEmail } from '@/lib/google';
 import { getCurrentUser } from '@/lib/auth';
+import { getCachedSettings, setCachedSettings } from '@/lib/settings';
 
 export async function GET() {
   try {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await getCachedSettings();
     let googleAccountEmail = settings?.googleAccountEmail || null;
 
     if (settings?.googleAccessToken && !googleAccountEmail) {
@@ -86,6 +87,8 @@ export async function PATCH(request: NextRequest) {
       create: { id: 1, ...updateData },
     });
     
+    setCachedSettings(settings);
+
     // Restart notification loop if interval or background notification settings changed
     if (notificationInterval !== undefined || backgroundNotificationsEnabled !== undefined) {
       restartNotificationLoop().catch(console.error);

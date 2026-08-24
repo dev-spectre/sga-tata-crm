@@ -2,22 +2,27 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { parseBranches } from '@/lib/utils';
 
+let cachedBranches: { data: string[]; timestamp: number } | null = null;
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
 export async function GET() {
   try {
+    const now = Date.now();
+    if (cachedBranches && now - cachedBranches.timestamp < CACHE_TTL_MS) {
+      return NextResponse.json({ branches: cachedBranches.data });
+    }
+
     const [rawLeadBranches, rawConsultants, rawUsers] = await Promise.all([
-      prisma.lead.findMany({
-        select: { branch: true },
-        distinct: ['branch'],
+      prisma.lead.groupBy({
+        by: ['branch'],
         where: { branch: { not: '' } },
       }),
-      prisma.consultant.findMany({
-        select: { branch: true },
-        distinct: ['branch'],
+      prisma.consultant.groupBy({
+        by: ['branch'],
         where: { branch: { not: '' } },
       }),
-      prisma.user.findMany({
-        select: { assignedBranch: true },
-        distinct: ['assignedBranch'],
+      prisma.user.groupBy({
+        by: ['assignedBranch'],
         where: { assignedBranch: { not: null } },
       }),
     ]);
@@ -40,14 +45,21 @@ export async function GET() {
       });
     };
 
-    rawLeadBranches.forEach(b => addBranch(b.branch));
-    rawConsultants.forEach((c: any) => addBranch(c.branch));
-    rawUsers.forEach(u => addBranch(u.assignedBranch));
+    (rawLeadBranches as { branch: string | null }[]).forEach((b: { branch: string | null }) => addBranch(b.branch));
+    (rawConsultants as { branch: string | null }[]).forEach((c: { branch: string | null }) => addBranch(c.branch));
+    (rawUsers as { assignedBranch: string | null }[]).forEach((u: { assignedBranch: string | null }) => addBranch(u.assignedBranch));
 
-    return NextResponse.json({ branches: Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b)) });
+    const sortedBranches = Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b));
+    cachedBranches = { data: sortedBranches, timestamp: now };
+
+    return NextResponse.json({ branches: sortedBranches });
 
   } catch (error) {
     console.error('Branches fetch error:', error);
+    if (cachedBranches) {
+      return NextResponse.json({ branches: cachedBranches.data });
+    }
     return NextResponse.json({ error: 'Failed to fetch branches' }, { status: 500 });
   }
 }
+

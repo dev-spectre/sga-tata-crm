@@ -34,6 +34,14 @@ const formatTestDriveRate = (yesCount: number, totalCount: number) => {
   return { pctStr, ratioStr, fullStr: `${pctStr} ${ratioStr}` };
 };
 
+const formatConversionRate = (completedCount: number, totalCount: number) => {
+  if (totalCount <= 0) return { pctStr: "0%", ratioStr: "(0/0)", fullStr: "0% (0/0)" };
+  const rawPct = (completedCount / totalCount) * 100;
+  const pctStr = (rawPct % 1 === 0 ? rawPct.toFixed(0) : rawPct.toFixed(1)) + "%";
+  const ratioStr = `(${completedCount}/${totalCount})`;
+  return { pctStr, ratioStr, fullStr: `${pctStr} ${ratioStr}` };
+};
+
 export default function ConsultantsPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"performance" | "manage">("performance");
@@ -206,6 +214,9 @@ export default function ConsultantsPage() {
       if (sortFieldPerf === "testDriveRate") {
         valA = a.total > 0 ? a.testDriveYes / a.total : 0;
         valB = b.total > 0 ? b.testDriveYes / b.total : 0;
+      } else if (sortFieldPerf === "conversionRate") {
+        valA = a.total > 0 ? a.live / a.total : 0;
+        valB = b.total > 0 ? b.live / b.total : 0;
       } else if (sortFieldPerf === "total") {
         valA = a.total;
         valB = b.total;
@@ -448,6 +459,7 @@ export default function ConsultantsPage() {
   }
 
   const aggregateTd = formatTestDriveRate(performanceAggregates.testDriveYes, performanceAggregates.totalLeads);
+  const aggregateConv = formatConversionRate(performanceAggregates.live, performanceAggregates.totalLeads);
 
   return (
     <div style={{ padding: "24px", maxWidth: "1400px", margin: "0 auto" }}>
@@ -585,10 +597,6 @@ export default function ConsultantsPage() {
           {/* Summary Cards */}
           <div className="stats-grid" style={{ marginBottom: "24px" }}>
             <div className="stat-card">
-              <div className="stat-label">Active Consultants</div>
-              <div className="stat-value" style={{ color: "#3b82f6" }}>{performanceAggregates.totalConsultants}</div>
-            </div>
-            <div className="stat-card">
               <div className="stat-label">Total Assigned</div>
               <div className="stat-value">{performanceAggregates.totalLeads}</div>
             </div>
@@ -603,6 +611,13 @@ export default function ConsultantsPage() {
             <div className="stat-card">
               <div className="stat-label">Completed</div>
               <div className="stat-value success" style={{ color: "#059669" }}>{performanceAggregates.live}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Conversion Rate</div>
+              <div className="stat-value" style={{ color: "#059669", display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span>{aggregateConv.pctStr}</span>
+                <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>{aggregateConv.ratioStr}</span>
+              </div>
             </div>
             <div className="stat-card">
               <div className="stat-label">Test Drive Rate</div>
@@ -677,6 +692,8 @@ export default function ConsultantsPage() {
                     cursor: "pointer",
                   }}
                 >
+                  <option value="conversionRate-desc">Sort: Conversion Rate (High → Low)</option>
+                  <option value="conversionRate-asc">Sort: Conversion Rate (Low → High)</option>
                   <option value="testDriveRate-desc">Sort: Test Drive Rate (High → Low)</option>
                   <option value="testDriveRate-asc">Sort: Test Drive Rate (Low → High)</option>
                   <option value="name-asc">Sort: Consultant Name (A → Z)</option>
@@ -732,10 +749,31 @@ export default function ConsultantsPage() {
                         {sortFieldPerf === "total" && <span style={{ fontSize: 11 }}>{sortOrderPerf === "desc" ? "↓" : "↑"}</span>}
                       </div>
                     </th>
-                    <th style={{ padding: "12px 14px", fontWeight: 700, fontSize: 13, color: "#475569" }}>Not Contacted</th>
-                    <th style={{ padding: "12px 14px", fontWeight: 700, fontSize: 13, color: "#b45309" }}>Contacted</th>
-                    <th style={{ padding: "12px 14px", fontWeight: 700, fontSize: 13, color: "#047857" }}>Completed</th>
-                    <th style={{ padding: "12px 14px", fontWeight: 700, fontSize: 13, color: "#b91c1c" }}>Lost</th>
+                    <th
+                      onClick={() => {
+                        setSortFieldPerf("conversionRate");
+                        setSortOrderPerf(sortFieldPerf === "conversionRate" && sortOrderPerf === "desc" ? "asc" : "desc");
+                      }}
+                      style={{
+                        padding: "12px 14px",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        cursor: "pointer",
+                        userSelect: "none",
+                        color: sortFieldPerf === "conversionRate" ? "#047857" : "var(--text-primary)",
+                      }}
+                      title="Click to sort by Conversion Rate"
+                    >
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span>Conversion Rate</span>
+                        {sortFieldPerf === "conversionRate" && (
+                          <span style={{ fontSize: 12, fontWeight: 800 }}>{sortOrderPerf === "desc" ? "↓" : "↑"}</span>
+                        )}
+                      </div>
+                    </th>
+                    <th style={{ padding: "12px 14px", fontWeight: 700, fontSize: 13, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", minWidth: 320 }}>
+                      Status Distribution
+                    </th>
                     <th
                       onClick={() => {
                         setSortFieldPerf("testDriveRate");
@@ -764,7 +802,7 @@ export default function ConsultantsPage() {
                 <tbody>
                   {sortedPerformanceStats.length === 0 ? (
                     <tr>
-                      <td colSpan={9} style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)" }}>
+                      <td colSpan={7} style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)" }}>
                         No consultant records found matching your filters.
                       </td>
                     </tr>
@@ -772,6 +810,14 @@ export default function ConsultantsPage() {
                     sortedPerformanceStats.map((stat) => {
                       const isUnassigned = stat.consultant === "Unassigned";
                       const tdInfo = formatTestDriveRate(stat.testDriveYes, stat.total);
+                      const convInfo = formatConversionRate(stat.live, stat.total);
+
+                      const totalStatus = stat.notContacted + stat.pending + stat.live + stat.lost;
+                      const hasLeads = totalStatus > 0;
+                      const pNotContacted = hasLeads ? Math.round((stat.notContacted / totalStatus) * 100) : 0;
+                      const pPending = hasLeads ? Math.round((stat.pending / totalStatus) * 100) : 0;
+                      const pLive = hasLeads ? Math.round((stat.live / totalStatus) * 100) : 0;
+                      const pLost = hasLeads ? Math.round((stat.lost / totalStatus) * 100) : 0;
 
                       return (
                         <tr key={stat.id} style={{ borderBottom: "1px solid var(--border)" }}>
@@ -828,35 +874,107 @@ export default function ConsultantsPage() {
                             )}
                           </td>
                           <td style={{ padding: "14px", fontWeight: 700, fontSize: 14 }}>{stat.total}</td>
-                          <td style={{ padding: "14px" }}>
-                            <span className="status-select status-not_contacted" style={{ padding: "3px 8px", fontSize: 12 }}>
-                              {stat.notContacted}
-                            </span>
+
+                          {/* Conversion Rate */}
+                          <td style={{ padding: "14px 18px" }}>
+                            <div>
+                              <div style={{ fontSize: 15, fontWeight: 800, color: stat.live > 0 ? "#059669" : "var(--text-primary)" }}>
+                                {convInfo.pctStr}
+                              </div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, fontWeight: 500 }}>
+                                {convInfo.ratioStr}
+                              </div>
+                            </div>
                           </td>
-                          <td style={{ padding: "14px" }}>
-                            <span className="status-select status-pending" style={{ padding: "3px 8px", fontSize: 12 }}>
-                              {stat.pending}
-                            </span>
+
+                          {/* Status Distribution (matching User Activity) */}
+                          <td style={{ padding: "14px 18px" }}>
+                            {hasLeads ? (
+                              <div>
+                                {/* Multi-segmented Progress Bar */}
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    height: 10,
+                                    borderRadius: 6,
+                                    overflow: "hidden",
+                                    background: "#e2e8f0",
+                                    marginBottom: 8,
+                                    border: "1px solid rgba(0,0,0,0.05)",
+                                  }}
+                                >
+                                  {stat.notContacted > 0 && (
+                                    <div
+                                      style={{ width: `${pNotContacted}%`, background: "#64748b", transition: "width 0.3s ease" }}
+                                      title={`Not Contacted: ${stat.notContacted} (${pNotContacted}%)`}
+                                    />
+                                  )}
+                                  {stat.pending > 0 && (
+                                    <div
+                                      style={{ width: `${pPending}%`, background: "#f59e0b", transition: "width 0.3s ease" }}
+                                      title={`Contacted: ${stat.pending} (${pPending}%)`}
+                                    />
+                                  )}
+                                  {stat.live > 0 && (
+                                    <div
+                                      style={{ width: `${pLive}%`, background: "#10b981", transition: "width 0.3s ease" }}
+                                      title={`Completed: ${stat.live} (${pLive}%)`}
+                                    />
+                                  )}
+                                  {stat.lost > 0 && (
+                                    <div
+                                      style={{ width: `${pLost}%`, background: "#ef4444", transition: "width 0.3s ease" }}
+                                      title={`Lost: ${stat.lost} (${pLost}%)`}
+                                    />
+                                  )}
+                                </div>
+
+                                {/* Status Badges Grid */}
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "4px 10px", fontSize: 11 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#64748b", flexShrink: 0 }} />
+                                    <span style={{ color: "var(--text-secondary)" }}>Not Contacted:</span>
+                                    <span style={{ fontWeight: 700, color: "#475569" }}>{stat.notContacted}</span>
+                                    <span style={{ color: "var(--text-muted)", fontSize: 10 }}>({pNotContacted}%)</span>
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
+                                    <span style={{ color: "var(--text-secondary)" }}>Contacted:</span>
+                                    <span style={{ fontWeight: 700, color: "#b45309" }}>{stat.pending}</span>
+                                    <span style={{ color: "var(--text-muted)", fontSize: 10 }}>({pPending}%)</span>
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981", flexShrink: 0 }} />
+                                    <span style={{ color: "var(--text-secondary)" }}>Completed:</span>
+                                    <span style={{ fontWeight: 700, color: "#047857" }}>{stat.live}</span>
+                                    <span style={{ color: "var(--text-muted)", fontSize: 10 }}>({pLive}%)</span>
+                                  </div>
+
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#ef4444", flexShrink: 0 }} />
+                                    <span style={{ color: "var(--text-secondary)" }}>Lost:</span>
+                                    <span style={{ fontWeight: 700, color: "#b91c1c" }}>{stat.lost}</span>
+                                    <span style={{ color: "var(--text-muted)", fontSize: 10 }}>({pLost}%)</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>0 leads assigned</span>
+                            )}
                           </td>
-                          <td style={{ padding: "14px" }}>
-                            <span className="status-select status-live" style={{ padding: "3px 8px", fontSize: 12 }}>
-                              {stat.live}
-                            </span>
-                          </td>
-                          <td style={{ padding: "14px" }}>
-                            <span className="status-select status-lost" style={{ padding: "3px 8px", fontSize: 12 }}>
-                              {stat.lost}
-                            </span>
-                          </td>
+
+                          {/* Test Drive Rate */}
                           <td style={{ padding: "14px", fontSize: 13 }}>
                             <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                              <div>
+                              <div style={{ display: "inline-flex", alignItems: "center", flexDirection: "column", justifyContent: "center" }}>
                                 <span style={{ fontWeight: 700, color: stat.testDriveYes > 0 ? "#16a34a" : "var(--text-primary)" }}>
                                   {tdInfo.pctStr}
                                 </span>
-                                <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6, fontWeight: 500 }}>
+                                <div style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6, fontWeight: 500 }}>
                                   {tdInfo.ratioStr}
-                                </span>
+                                </div>
                               </div>
                               <button
                                 type="button"
@@ -902,7 +1020,7 @@ export default function ConsultantsPage() {
                               >
                                 Scheduled
                               </button>
-                         
+
                               <button
                                 className="btn btn-sm btn-secondary"
                                 onClick={() => handleViewConsultantLeads(stat.consultant, "")}

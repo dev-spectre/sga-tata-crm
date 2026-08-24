@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { resolveLeadHandler } from '@/lib/activity';
+import { resolveLeadHandler, getCachedStaffUsers } from '@/lib/activity';
 
 export async function GET(request: NextRequest) {
   try {
@@ -332,16 +332,8 @@ export async function GET(request: NextRequest) {
     const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
     const leadIds = leads.map((l) => l.id);
 
-    const [staffUsers, recentActivities] = await Promise.all([
-      prisma.user.findMany({
-        where: {
-          AND: [
-            { username: { notIn: [superUsername, 'sudo'], mode: 'insensitive' } },
-            { role: { not: 'SUPERADMIN' } },
-          ],
-        },
-        select: { id: true, username: true },
-      }),
+    const [{ staffUsernames, staffUserById }, recentActivities] = await Promise.all([
+      getCachedStaffUsers(),
       leadIds.length > 0
         ? prisma.leadActivity.findMany({
             where: {
@@ -367,13 +359,6 @@ export async function GET(request: NextRequest) {
           })
         : [],
     ]);
-
-    const staffUsernames = new Set<string>();
-    const staffUserById = new Map<number, string>();
-    for (const u of staffUsers) {
-      staffUsernames.add(u.username.trim().toLowerCase());
-      staffUserById.set(u.id, u.username);
-    }
 
     const activitiesByLead = new Map<number, typeof recentActivities>();
     for (const act of recentActivities) {

@@ -162,9 +162,6 @@ export async function GET(request: NextRequest) {
           uploadedAt: true,
           createdAt: true,
           updatedAt: true,
-          _count: {
-            select: { activities: true },
-          },
         },
       }),
       prisma.leadActivity.findMany({

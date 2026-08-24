@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { findAndWriteToSheetRow } from '@/lib/google';
 import { getCurrentUser } from '@/lib/auth';
-import { logLeadDiff, checkLeadLockForUser, resolveLeadHandler } from '@/lib/activity';
+import { logLeadDiff, checkLeadLockForUser, resolveLeadHandler, getCachedStaffUsers } from '@/lib/activity';
+import { getCachedSettings } from '@/lib/settings';
 
 export async function POST(
   request: NextRequest,
@@ -60,7 +61,7 @@ export async function POST(
     if (lead.source !== 'External Upload' && lead.uploadedById === null) {
       (async () => {
         try {
-          const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+          const settings = await getCachedSettings();
           const spreadsheetId = lead.sheetId || settings?.selectedSpreadsheetId;
           const sheetName = settings?.selectedSheetName;
 
@@ -85,16 +86,8 @@ export async function POST(
 
     // Compute updated handler to return to client
     const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
-    const [staffUsers, leadActivities] = await Promise.all([
-      prisma.user.findMany({
-        where: {
-          AND: [
-            { username: { notIn: [superUsername, 'sudo'], mode: 'insensitive' } },
-            { role: { not: 'SUPERADMIN' } },
-          ],
-        },
-        select: { id: true, username: true },
-      }),
+    const [{ staffUsernames, staffUserById }, leadActivities] = await Promise.all([
+      getCachedStaffUsers(),
       prisma.leadActivity.findMany({
         where: {
           leadId,
@@ -113,13 +106,6 @@ export async function POST(
         },
       }),
     ]);
-
-    const staffUsernames = new Set<string>();
-    const staffUserById = new Map<number, string>();
-    for (const u of staffUsers) {
-      staffUsernames.add(u.username.trim().toLowerCase());
-      staffUserById.set(u.id, u.username);
-    }
 
     const currentHandler = resolveLeadHandler(updatedLead, leadActivities, staffUsernames, staffUserById);
 

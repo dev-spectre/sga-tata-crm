@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { prisma } from './prisma';
 import { parsePhoneNumber } from './utils';
+import { getCachedSettings, invalidateSettingsCache } from './settings';
 
 export function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -33,7 +34,7 @@ export async function handleCallback(code: string) {
   const { tokens } = await oauth2Client.getToken(code);
   oauth2Client.setCredentials(tokens);
 
-  const existingSettings = await prisma.settings.findUnique({ where: { id: 1 } });
+  const existingSettings = await getCachedSettings();
 
   let email: string | null = null;
   try {
@@ -81,12 +82,13 @@ export async function handleCallback(code: string) {
       googleAccountEmail: finalEmail,
     },
   });
+  invalidateSettingsCache();
 
   return tokens;
 }
 
 export async function getAuthenticatedClient() {
-  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  const settings = await getCachedSettings();
 
   if (!settings?.googleAccessToken) {
     throw new Error('Google account not linked. Please connect in Settings.');
@@ -120,6 +122,7 @@ export async function getAuthenticatedClient() {
           googleTokenExpiry: expiryDate,
         },
       });
+      invalidateSettingsCache();
       oauth2Client.setCredentials(credentials);
     } catch (refreshErr) {
       console.error('Failed to refresh Google access token:', refreshErr);
@@ -402,7 +405,7 @@ export async function findAndWriteToSheetRow(
     return null;
   }
 
-  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  const settings = await getCachedSettings();
   if (!settings?.googleAccessToken) return null;
 
   const rows = await getSheetData(spreadsheetId, sheetName);
@@ -550,7 +553,7 @@ export async function findAndDeleteSheetRow(
   if (lead.source === 'External Upload' || (lead.uploadedById !== null && lead.uploadedById !== undefined)) {
     return false;
   }
-  const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+  const settings = await getCachedSettings();
   if (!settings?.googleAccessToken) return false;
 
   const rows = await getSheetData(spreadsheetId, sheetName);

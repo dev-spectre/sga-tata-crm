@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { computeIntelligentMapping } from '@/lib/mapping';
 import { getCurrentUser } from '@/lib/auth';
+import { getCachedSettings, invalidateSettingsCache } from '@/lib/settings';
 
 export async function POST() {
   try {
@@ -15,7 +16,7 @@ export async function POST() {
     }
 
 
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const settings = await getCachedSettings();
     if (!settings?.selectedSpreadsheetId || !settings?.selectedSheetName) {
       return NextResponse.json({ error: 'No sheet selected' }, { status: 400 });
     }
@@ -29,6 +30,7 @@ export async function POST() {
       where: { id: 1 },
       data: { columnMapping: JSON.stringify(mapping) },
     });
+    invalidateSettingsCache();
 
     return NextResponse.json({ mapping });
   } catch (error) {

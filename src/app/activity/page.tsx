@@ -595,6 +595,9 @@ export default function UserActivityPage() {
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
                       Handled Leads
                     </th>
+                    <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
+                      Conversion Rate
+                    </th>
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase", minWidth: 360 }}>
                       Status Distribution
                     </th>
@@ -620,13 +623,13 @@ export default function UserActivityPage() {
                 <tbody>
                   {loadingOverview ? (
                     <tr>
-                      <td colSpan={isSuperAdmin ? 8 : 7} style={{ textAlign: "center", padding: "48px 20px" }}>
+                      <td colSpan={isSuperAdmin ? 9 : 8} style={{ textAlign: "center", padding: "48px 20px" }}>
                         <span className="spinner" style={{ marginRight: 8 }} /> Loading user activity data...
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={isSuperAdmin ? 8 : 7} style={{ textAlign: "center", color: "var(--text-muted)", padding: "48px 20px" }}>
+                      <td colSpan={isSuperAdmin ? 9 : 8} style={{ textAlign: "center", color: "var(--text-muted)", padding: "48px 20px" }}>
                         No user found matching your search.
                       </td>
                     </tr>
@@ -638,6 +641,7 @@ export default function UserActivityPage() {
                       const pPending = hasLeads ? Math.round((u.pending / totalStatus) * 100) : 0;
                       const pLive = hasLeads ? Math.round((u.live / totalStatus) * 100) : 0;
                       const pLost = hasLeads ? Math.round((u.lost / totalStatus) * 100) : 0;
+                      const convPct = u.total > 0 ? ((u.live / u.total) * 100).toFixed(1) : "0.0";
 
                       return (
                         <tr key={u.userId} style={{ borderBottom: "1px solid rgba(148, 163, 184, 0.15)" }}>
@@ -692,6 +696,18 @@ export default function UserActivityPage() {
                           <td style={{ padding: "16px 18px" }}>
                             <div style={{ fontSize: 20, fontWeight: 800, color: "var(--text-primary)" }}>
                               {u.total.toLocaleString()}
+                            </div>
+                          </td>
+
+                          {/* Conversion Rate */}
+                          <td style={{ padding: "16px 18px" }}>
+                            <div>
+                              <div style={{ fontSize: 16, fontWeight: 800, color: u.live > 0 ? "#059669" : "var(--text-primary)" }}>
+                                {convPct}%
+                              </div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, fontWeight: 500 }}>
+                                ({u.live}/{u.total})
+                              </div>
                             </div>
                           </td>
 

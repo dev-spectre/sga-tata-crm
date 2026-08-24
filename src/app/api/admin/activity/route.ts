@@ -50,19 +50,20 @@ export async function GET() {
         },
       }),
       prisma.lead.findMany({
+        where: {
+          OR: [
+            { status: { notIn: ['not_contacted', 'created'] } },
+            { assignedConsultant: { not: null } },
+            { uploadedById: { not: null } },
+          ],
+        },
         select: {
           id: true,
-          name: true,
-          phone: true,
-          city: true,
-          branch: true,
-          platform: true,
-          assignedConsultant: true,
           status: true,
           testDrive: true,
+          assignedConsultant: true,
           uploadedById: true,
           uploadedAt: true,
-          createdAt: true,
           updatedAt: true,
         },
       }),

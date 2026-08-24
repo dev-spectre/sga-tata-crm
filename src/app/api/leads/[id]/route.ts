@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { findAndWriteToSheetRow, findAndDeleteSheetRow } from '@/lib/google';
 import { getCurrentUser } from '@/lib/auth';
-import { logLeadDiff, checkLeadLockForUser, resolveLeadHandler } from '@/lib/activity';
+import { logLeadDiff, checkLeadLockForUser, resolveLeadHandler, getCachedStaffUsers } from '@/lib/activity';
+import { getCachedSettings } from '@/lib/settings';
 
 export async function PATCH(
   request: NextRequest,
@@ -33,46 +34,23 @@ export async function PATCH(
     
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: any = {};
-    
-    if (status !== undefined) {
-      if (!['pending', 'live', 'lost', 'created', 'closed_successful', 'closed_unsuccessful', 'not_contacted'].includes(status)) {
-        return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
-      }
-      let targetStatus = status;
-      if (status === 'created') targetStatus = 'not_contacted';
-      if (status === 'closed_successful') targetStatus = 'live';
-      if (status === 'closed_unsuccessful') targetStatus = 'lost';
-      updateData.status = targetStatus;
-    }
-    
-    if (remark !== undefined) {
-      updateData.remark = remark;
-      if (!status && (lead.status === 'created' || lead.status === 'pending' || lead.status === 'not_contacted')) {
-        updateData.status = 'live';
-      }
-    }
-    
+    if (status !== undefined) updateData.status = status;
+    if (remark !== undefined) updateData.remark = remark;
     if (followUpDate1 !== undefined) {
-      updateData.followUpDate1 = followUpDate1 ? new Date(followUpDate1.includes('T') ? followUpDate1 : `${followUpDate1}T12:00:00Z`) : null;
+      updateData.followUpDate1 = followUpDate1 ? new Date(followUpDate1) : null;
     }
     if (followUpDate2 !== undefined) {
-      updateData.followUpDate2 = followUpDate2 ? new Date(followUpDate2.includes('T') ? followUpDate2 : `${followUpDate2}T12:00:00Z`) : null;
+      updateData.followUpDate2 = followUpDate2 ? new Date(followUpDate2) : null;
     }
-    
-    if (assignedConsultant !== undefined) {
-      updateData.assignedConsultant = assignedConsultant;
-    }
+    if (assignedConsultant !== undefined) updateData.assignedConsultant = assignedConsultant;
+    if (testDrive !== undefined) updateData.testDrive = testDrive;
 
-    if (testDrive !== undefined) {
-      updateData.testDrive = testDrive;
-    }
-    
     const updatedLead = await prisma.lead.update({
       where: { id: leadId },
       data: updateData,
     });
 
-    // Log user activity changes (skips superadmin automatically)
+    // Log activity diff (skips superadmin automatically)
     await logLeadDiff({
       leadId,
       user: currentUser,
@@ -83,7 +61,7 @@ export async function PATCH(
     // Wait for Google Sheet update only for primary sheet leads (never write back external uploads)
     if (lead.source !== 'External Upload' && lead.uploadedById === null) {
       try {
-        const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+        const settings = await getCachedSettings();
         const spreadsheetId = lead.sheetId || settings?.selectedSpreadsheetId;
         const sheetName = settings?.selectedSheetName;
 
@@ -93,46 +71,43 @@ export async function PATCH(
             : { remark: 7, status: 8 };
           
           const updates: { col: number; value: string }[] = [];
-          if (remark !== undefined && mapping.remark !== undefined && mapping.remark >= 0) {
-            updates.push({ col: mapping.remark, value: remark || '' });
+          if (remark !== undefined && mapping.remark !== undefined) {
+            updates.push({ col: mapping.remark, value: remark });
           }
-          if (followUpDate1 !== undefined && mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0) {
-            updates.push({ col: mapping.followUpDate1, value: followUpDate1 || '' });
+          if (status !== undefined && mapping.status !== undefined) {
+            let formattedStatus = status;
+            if (status === 'pending') formattedStatus = 'Contacted';
+            else if (status === 'live') formattedStatus = 'Completed';
+            else if (status === 'lost') formattedStatus = 'Lost';
+            else if (status === 'not_contacted') formattedStatus = 'Not Contacted';
+            updates.push({ col: mapping.status, value: formattedStatus });
           }
-          if (followUpDate2 !== undefined && mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0) {
-            updates.push({ col: mapping.followUpDate2, value: followUpDate2 || '' });
+          if (followUpDate1 !== undefined && mapping.followUpDate1 !== undefined) {
+            updates.push({ 
+              col: mapping.followUpDate1, 
+              value: followUpDate1 ? new Date(followUpDate1).toISOString().split('T')[0] : '' 
+            });
           }
-          if (assignedConsultant !== undefined && mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) {
-            updates.push({ col: mapping.assignedConsultant, value: assignedConsultant || '' });
+          if (followUpDate2 !== undefined && mapping.followUpDate2 !== undefined) {
+            updates.push({ 
+              col: mapping.followUpDate2, 
+              value: followUpDate2 ? new Date(followUpDate2).toISOString().split('T')[0] : '' 
+            });
           }
-          if (testDrive !== undefined && mapping.testDrive !== undefined && mapping.testDrive >= 0) {
-            updates.push({ col: mapping.testDrive, value: testDrive || '' });
-          }
-          if (mapping.status !== undefined && mapping.status >= 0) {
-            const finalStatus = updateData.status || lead.status;
-            updates.push({ col: mapping.status, value: finalStatus });
-          }
+
           if (updates.length > 0) {
             await findAndWriteToSheetRow(spreadsheetId, sheetName, lead, updates);
           }
         }
       } catch (sheetError) {
-        console.error('Failed to update Google Sheet row:', sheetError);
+        console.error('Failed to update Google Sheet in background:', sheetError);
       }
     }
 
     // Compute updated handler to return to client
     const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
-    const [staffUsers, leadActivities] = await Promise.all([
-      prisma.user.findMany({
-        where: {
-          AND: [
-            { username: { notIn: [superUsername, 'sudo'], mode: 'insensitive' } },
-            { role: { not: 'SUPERADMIN' } },
-          ],
-        },
-        select: { id: true, username: true },
-      }),
+    const [{ staffUsernames, staffUserById }, leadActivities] = await Promise.all([
+      getCachedStaffUsers(),
       prisma.leadActivity.findMany({
         where: {
           leadId,
@@ -151,13 +126,6 @@ export async function PATCH(
         },
       }),
     ]);
-
-    const staffUsernames = new Set<string>();
-    const staffUserById = new Map<number, string>();
-    for (const u of staffUsers) {
-      staffUsernames.add(u.username.trim().toLowerCase());
-      staffUserById.set(u.id, u.username);
-    }
 
     const currentHandler = resolveLeadHandler(updatedLead, leadActivities, staffUsernames, staffUserById);
 
@@ -198,7 +166,7 @@ export async function DELETE(
     // Superadmin permanently deletes the lead (only delete from sheet for primary sheet leads)
     if (deleteFromSheet && lead.source !== 'External Upload' && lead.uploadedById === null) {
       try {
-        const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+        const settings = await getCachedSettings();
         const spreadsheetId = lead.sheetId || settings?.selectedSpreadsheetId;
         const sheetName = settings?.selectedSheetName;
 

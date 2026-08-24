@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { getSheetData } from '@/lib/google';
 import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
 import { isSuperAdminUser } from '@/lib/activity';
+import { getCachedSettings } from '@/lib/settings';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
         cleanId = urlMatch[1];
       }
 
-      const settings = await prisma.settings.findUnique({ where: { id: 1 } });
+      const settings = await getCachedSettings();
       if (!settings?.googleAccessToken) {
         return NextResponse.json({ error: 'Google account not linked. Please connect Google in Settings or upload an Excel/CSV file instead.' }, { status: 400 });
       }
@@ -40,36 +41,68 @@ export async function POST(request: NextRequest) {
     }
 
     if (!rows || rows.length <= 1) {
-      return NextResponse.json({ synced: 0, skipped: 0, total: 0, message: 'Sheet is empty or only contains headers' });
+      return NextResponse.json({ error: 'No data rows found to process.' }, { status: 400 });
     }
 
-    // Default column mapping if none provided
-    const DEFAULT_MAPPING = {
-      name: 0,
-      phone: 1,
-      city: 2,
-      createdAt: 3,
-      remark: 4,
-      status: 5,
-      adname: 6,
-      branch: 7,
-      assignedConsultant: -1,
-      testDrive: -1,
-      platform: -1,
-    };
-
     const mapping = {
-      ...DEFAULT_MAPPING,
-      ...(userMapping || {}),
+      name: userMapping?.name ?? 0,
+      phone: userMapping?.phone ?? 1,
+      city: userMapping?.city ?? 2,
+      createdAt: userMapping?.createdAt ?? 3,
+      remark: userMapping?.remark ?? 4,
+      status: userMapping?.status ?? 5,
+      adname: userMapping?.adname ?? 6,
+      branch: userMapping?.branch ?? 7,
+      followUpDate1: userMapping?.followUpDate1 ?? 8,
+      followUpDate2: userMapping?.followUpDate2 ?? 9,
+      platform: userMapping?.platform ?? 10,
+      assignedConsultant: userMapping?.assignedConsultant ?? -1,
+      testDrive: userMapping?.testDrive ?? -1,
     };
 
     const dataRows = rows.slice(1);
     let synced = 0;
     let skipped = 0;
 
-    const existingLeads = await prisma.lead.findMany({
-      select: { id: true, fingerprint: true, phone: true },
-    });
+    const getVal = (row: (string | number)[], colIndex: number | undefined): string => {
+      if (colIndex === undefined || colIndex === null || colIndex < 0 || colIndex >= row.length) {
+        return '';
+      }
+      return String(row[colIndex] ?? '').trim();
+    };
+
+    // Pre-extract candidate phones and fingerprints to query only matching subset from DB
+    const candidatePhones = new Set<string>();
+    const candidateFingerprints = new Set<string>();
+    const fpCounts = new Map<string, number>();
+
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      const rawPhone = getVal(row, mapping.phone);
+      const cleanPhone = parsePhoneNumber(rawPhone);
+      if (cleanPhone) candidatePhones.add(cleanPhone);
+
+      const rawCreatedAt = getVal(row, mapping.createdAt);
+      const baseFp = `${cleanPhone}|${rawCreatedAt}`;
+      const cnt = fpCounts.get(baseFp) || 0;
+      fpCounts.set(baseFp, cnt + 1);
+      candidateFingerprints.add(`${baseFp}|${cnt}`);
+    }
+
+    const orConditions: any[] = [];
+    if (candidatePhones.size > 0) {
+      orConditions.push({ phone: { in: Array.from(candidatePhones) } });
+    }
+    if (candidateFingerprints.size > 0) {
+      orConditions.push({ fingerprint: { in: Array.from(candidateFingerprints) } });
+    }
+
+    const existingLeads = orConditions.length > 0
+      ? await prisma.lead.findMany({
+          where: { OR: orConditions },
+          select: { id: true, fingerprint: true, phone: true },
+        })
+      : [];
 
     const existingByFingerprint = new Map<string, number>();
     const existingByPhone = new Map<string, number>();
@@ -82,13 +115,6 @@ export async function POST(request: NextRequest) {
 
     const toCreate: any[] = [];
     const seenPhonesInSheet = new Set<string>();
-
-    const getVal = (row: (string | number)[], colIndex: number | undefined): string => {
-      if (colIndex === undefined || colIndex === null || colIndex < 0 || colIndex >= row.length) {
-        return '';
-      }
-      return String(row[colIndex] ?? '').trim();
-    };
 
     let uploaderDbId: number | null = currentUser.userId > 0 ? currentUser.userId : null;
     if (!uploaderDbId) {

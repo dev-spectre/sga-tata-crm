@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { computeIntelligentMapping } from '@/lib/mapping';
 import { getCurrentUser } from '@/lib/auth';
+import { getCachedSettings, invalidateSettingsCache } from '@/lib/settings';
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    const currentSettings = await prisma.settings.findUnique({ where: { id: 1 } });
+    const currentSettings = await getCachedSettings();
     if (
       currentSettings && 
       (currentSettings.selectedSpreadsheetId !== spreadsheetId || currentSettings.selectedSheetName !== sheetName)
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
         selectedSheetName: sheetName,
       },
     });
+    invalidateSettingsCache();
     
     try {
       const mapping = await computeIntelligentMapping(spreadsheetId, sheetName);
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
         where: { id: 1 },
         data: { columnMapping: JSON.stringify(mapping) },
       });
+      invalidateSettingsCache();
     } catch (mappingError) {
       console.error('Auto-mapping failed during sheet select:', mappingError);
       // We still return success since the sheet was selected, but mapping might be incomplete

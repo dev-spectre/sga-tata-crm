@@ -286,6 +286,61 @@ export function resolveLeadHandler(
  *    - If currentUser is another normal user (User B), the lead IS LOCKED for User B (isLocked = true).
  * 4. If current handling user changes status back to 'not_contacted', the lock is released.
  */
+let cachedStaffUsers: {
+  staffUsers: { id: number; username: string }[];
+  staffUsernames: Set<string>;
+  staffUserById: Map<number, string>;
+  timestamp: number;
+} | null = null;
+const STAFF_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+export async function getCachedStaffUsers(): Promise<{
+  staffUsers: { id: number; username: string }[];
+  staffUsernames: Set<string>;
+  staffUserById: Map<number, string>;
+}> {
+  const now = Date.now();
+  if (cachedStaffUsers && now - cachedStaffUsers.timestamp < STAFF_CACHE_TTL_MS) {
+    return cachedStaffUsers;
+  }
+
+  const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
+  const staffUsers = await prisma.user.findMany({
+    where: {
+      AND: [
+        { username: { notIn: [superUsername, 'sudo'], mode: 'insensitive' } },
+        { role: { not: 'SUPERADMIN' } },
+      ],
+    },
+    select: { id: true, username: true },
+  });
+
+  const staffUsernames = new Set<string>();
+  const staffUserById = new Map<number, string>();
+  for (const u of staffUsers) {
+    staffUsernames.add(u.username.trim().toLowerCase());
+    staffUserById.set(u.id, u.username);
+  }
+
+  cachedStaffUsers = { staffUsers, staffUsernames, staffUserById, timestamp: now };
+  return cachedStaffUsers;
+}
+
+export function invalidateStaffUsersCache(): void {
+  cachedStaffUsers = null;
+}
+
+/**
+ * Checks if a lead is locked from being modified by the current user.
+ * 
+ * Rules:
+ * 1. Admin and Superadmin can modify any lead (override).
+ * 2. If lead status is 'not_contacted' or 'created', ANY user can modify/claim it (isLocked = false).
+ * 3. If lead status is handled (pending, live, lost) and is currently handled by a normal user (User A):
+ *    - User A can modify it.
+ *    - If currentUser is another normal user (User B), the lead IS LOCKED for User B (isLocked = true).
+ * 4. If current handling user changes status back to 'not_contacted', the lock is released.
+ */
 export async function checkLeadLockForUser(
   leadId: number,
   currentUser: UserSession | null
@@ -320,18 +375,10 @@ export async function checkLeadLockForUser(
     return { isLocked: false, handledBy: null };
   }
 
-  // Fetch activities for this lead to determine active handler
+  // Fetch activities and cached staff users to determine active handler
   const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
-  const [staffUsers, leadActivities] = await Promise.all([
-    prisma.user.findMany({
-      where: {
-        AND: [
-          { username: { notIn: [superUsername, 'sudo'], mode: 'insensitive' } },
-          { role: { not: 'SUPERADMIN' } },
-        ],
-      },
-      select: { id: true, username: true },
-    }),
+  const [{ staffUsernames, staffUserById }, leadActivities] = await Promise.all([
+    getCachedStaffUsers(),
     prisma.leadActivity.findMany({
       where: {
         leadId,
@@ -348,13 +395,6 @@ export async function checkLeadLockForUser(
       },
     }),
   ]);
-
-  const staffUsernames = new Set<string>();
-  const staffUserById = new Map<number, string>();
-  for (const u of staffUsers) {
-    staffUsernames.add(u.username.trim().toLowerCase());
-    staffUserById.set(u.id, u.username);
-  }
 
   const handledBy = resolveLeadHandler(lead, leadActivities, staffUsernames, staffUserById);
   if (!handledBy) {
