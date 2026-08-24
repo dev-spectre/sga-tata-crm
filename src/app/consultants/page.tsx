@@ -59,11 +59,13 @@ export default function ConsultantsPage() {
   const [consultantFilterPerf, setConsultantFilterPerf] = useState("");
   const [sortFieldPerf, setSortFieldPerf] = useState<string>("testDriveRate");
   const [sortOrderPerf, setSortOrderPerf] = useState<"asc" | "desc">("desc");
+  const [showMobileFiltersPerf, setShowMobileFiltersPerf] = useState(false);
 
   // Filters for Manage tab
   const [searchManage, setSearchManage] = useState("");
   const [branchFilterManage, setBranchFilterManage] = useState("");
   const [consultantFilterManage, setConsultantFilterManage] = useState("");
+  const [showMobileFiltersManage, setShowMobileFiltersManage] = useState(false);
 
 
   // Add Consultant Modal State
@@ -526,7 +528,7 @@ export default function ConsultantsPage() {
         </div>
 
         {/* Section Tabs Switcher */}
-        <div style={{ display: "flex", gap: "24px", borderBottom: "1.5px solid var(--border)", marginTop: "20px" }}>
+        <div style={{ display: "flex", gap: "12px", borderBottom: "1.5px solid var(--border)", marginTop: "20px", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
           <button
             onClick={() => setActiveTab("performance")}
             style={{
@@ -629,9 +631,9 @@ export default function ConsultantsPage() {
           </div>
 
           {/* Filter Bar */}
-          <div className="glass-card overflow-visible" style={{ padding: "16px 20px", marginBottom: "24px", overflow: "visible", position: "relative", zIndex: 100 }}>
-            <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: "240px", position: "relative" }}>
+          <div className="glass-card overflow-visible filter-bar" style={{ padding: "16px 20px", marginBottom: "24px", overflow: "visible", position: "relative", zIndex: 20 }}>
+            <div className="filter-search-row">
+              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                 <input
                   type="text"
                   placeholder="Search by consultant name..."
@@ -658,6 +660,39 @@ export default function ConsultantsPage() {
                 </svg>
               </div>
 
+              <button
+                type="button"
+                className={`mobile-filter-btn btn ${showMobileFiltersPerf || (branchFilterPerf || consultantFilterPerf) ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setShowMobileFiltersPerf(!showMobileFiltersPerf)}
+                aria-label="Toggle filters"
+                style={{ padding: "0 12px", height: 38, display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+                <span>Filters</span>
+                {(() => {
+                  const count = [branchFilterPerf, consultantFilterPerf].filter(Boolean).length;
+                  return count > 0 ? (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: "#ffffff",
+                        color: "var(--primary-dark)",
+                        borderRadius: 10,
+                        padding: "1px 6px",
+                        lineHeight: "14px",
+                      }}
+                    >
+                      {count}
+                    </span>
+                  ) : null;
+                })()}
+              </button>
+            </div>
+
+            <div className={`filter-items-wrapper ${showMobileFiltersPerf ? "expanded" : ""}`}>
               <div>
                 <BranchConsultantPicker
                   branches={branches}
@@ -714,7 +749,6 @@ export default function ConsultantsPage() {
                   Clear Filters
                 </button>
               )}
-
             </div>
           </div>
 
@@ -1064,9 +1098,9 @@ export default function ConsultantsPage() {
           </div>
 
           {/* Filter Bar */}
-          <div className="glass-card overflow-visible" style={{ padding: "16px 20px", marginBottom: "24px", overflow: "visible", position: "relative", zIndex: 100 }}>
-            <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: "240px", position: "relative" }}>
+          <div className="glass-card overflow-visible filter-bar" style={{ padding: "16px 20px", marginBottom: "24px", overflow: "visible", position: "relative", zIndex: 20 }}>
+            <div className="filter-search-row">
+              <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
                 <input
                   type="text"
                   placeholder="Search by consultant name or branch..."
@@ -1093,6 +1127,39 @@ export default function ConsultantsPage() {
                 </svg>
               </div>
 
+              <button
+                type="button"
+                className={`mobile-filter-btn btn ${showMobileFiltersManage || (branchFilterManage || consultantFilterManage) ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setShowMobileFiltersManage(!showMobileFiltersManage)}
+                aria-label="Toggle filters"
+                style={{ padding: "0 12px", height: 38, display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+                <span>Filters</span>
+                {(() => {
+                  const count = [branchFilterManage, consultantFilterManage].filter(Boolean).length;
+                  return count > 0 ? (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: "#ffffff",
+                        color: "var(--primary-dark)",
+                        borderRadius: 10,
+                        padding: "1px 6px",
+                        lineHeight: "14px",
+                      }}
+                    >
+                      {count}
+                    </span>
+                  ) : null;
+                })()}
+              </button>
+            </div>
+
+            <div className={`filter-items-wrapper ${showMobileFiltersManage ? "expanded" : ""}`}>
               <div>
                 <BranchConsultantPicker
                   branches={branches}

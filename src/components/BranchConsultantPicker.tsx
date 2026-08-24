@@ -283,7 +283,7 @@ export default function BranchConsultantPicker({
           textAlign: "left",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -305,12 +305,12 @@ export default function BranchConsultantPicker({
               </>
             )}
           </svg>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
             {displayLabel}
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0, marginLeft: "auto" }}>
           {isFiltered && (
             <span
               role="button"

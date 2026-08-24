@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 
 export default function LoginPage() {
   return (
-    <div className="login-page" style={{ marginLeft: "calc(-1 * var(--sidebar-width))" }}>
+    <div className="login-page">
       <div className="login-card">
         <div className="login-logo-wrap">
           <div className="login-logo-icon" style={{ background: "transparent", boxShadow: "none" }}>

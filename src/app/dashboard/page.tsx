@@ -142,8 +142,8 @@ export default function DashboardPage() {
   const [uploaderFilter, setUploaderFilter] = useState("");
   const [platformFilter, setPlatformFilter] = useState("");
   const [startDate, setStartDate] = useState("");
-
   const [endDate, setEndDate] = useState("");
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [tempStartDate, setTempStartDate] = useState("");
@@ -1565,191 +1565,240 @@ export default function DashboardPage() {
 
       {/* Filters */}
       <div className="filter-bar">
-        <input
-          type="text"
-          placeholder="Search by name, phone, city..."
-          value={searchInput}
-          onChange={(e) => {
-            setSearchInput(e.target.value);
-            setPagination(p => ({ ...p, page: 1 }));
-          }}
-        />
-        {/* Status Multi-Select Filter */}
-        <MultiSelectDropdown
-          label="Status"
-          allLabel="All Statuses"
-          value={statusFilter}
-          options={[
-            { label: "Not Contacted", value: "not_contacted" },
-            { label: "Contacted", value: "pending" },
-            { label: "Completed", value: "live" },
-            { label: "Lost", value: "lost" },
-          ]}
-          onChange={(newVal) => {
-            setStatusFilter(newVal);
-            setPagination((p) => ({ ...p, page: 1 }));
-          }}
-        />
-
-        {userRole === "ADMIN" || userRole === "SUPERADMIN" ? (
-          <div>
-            <BranchConsultantPicker
-              branches={branches}
-              consultants={consultantsList}
-              selectedBranch={branchFilter}
-              selectedConsultant={consultantFilter}
-              onChange={({ branch, consultant }) => {
-                setBranchFilter(branch);
-                setConsultantFilter(consultant);
+        <div className="filter-search-row">
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <input
+              type="text"
+              placeholder="Search by name, phone, city..."
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
                 setPagination(p => ({ ...p, page: 1 }));
               }}
-              placeholder="All Branches & Consultants"
-              showUnassigned={true}
+              style={{ width: "100%", paddingLeft: "36px" }}
             />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--text-muted)"
+              strokeWidth="2"
+              style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 15, height: 15, pointerEvents: "none" }}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
           </div>
-        ) : userAssignedBranch ? (
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "8px 12px",
-              borderRadius: "8px",
-              background: "rgba(255, 255, 255, 0.06)",
-              border: "1px solid var(--border)",
-              fontSize: "13px",
-              color: "var(--text-secondary)"
-            }}
-            title="Branch restricted by Admin"
+
+          <button
+            type="button"
+            className={`mobile-filter-btn btn ${showMobileFilters || (statusFilter || branchFilter || consultantFilter || testDriveFilter || uploaderFilter || platformFilter || startDate || endDate) ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+            aria-label="Toggle filters"
+            style={{ padding: "0 12px", height: 38, display: "inline-flex", alignItems: "center", gap: 6 }}
           >
-            <span>Branch: <strong style={{ textTransform: "capitalize", color: "var(--text-primary)" }}>{(userAssignedBranch || "").replace(/_/g, " ")}</strong></span>
-          </div>
-        ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+            <span>Filters</span>
+            {(() => {
+              const count = [statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, (startDate || endDate)].filter(Boolean).length;
+              return count > 0 ? (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    background: "#ffffff",
+                    color: "var(--primary-dark)",
+                    borderRadius: 10,
+                    padding: "1px 6px",
+                    lineHeight: "14px",
+                  }}
+                >
+                  {count}
+                </span>
+              ) : null;
+            })()}
+          </button>
+        </div>
+
+        <div className={`filter-items-wrapper ${showMobileFilters ? "expanded" : ""}`}>
+          {/* Status Multi-Select Filter */}
           <MultiSelectDropdown
-            label="Branch"
-            allLabel="All Branches"
-            value={branchFilter}
-            options={branches.map((b: string) => ({ label: b, value: b }))}
+            label="Status"
+            allLabel="All Statuses"
+            value={statusFilter}
+            options={[
+              { label: "Not Contacted", value: "not_contacted" },
+              { label: "Contacted", value: "pending" },
+              { label: "Completed", value: "live" },
+              { label: "Lost", value: "lost" },
+            ]}
             onChange={(newVal) => {
-              setBranchFilter(newVal);
+              setStatusFilter(newVal);
               setPagination((p) => ({ ...p, page: 1 }));
             }}
           />
-        )}
 
-        {/* Test Drive Multi-Select Filter */}
-        <MultiSelectDropdown
-          label="Test Drive"
-          allLabel="All Test Drives"
-          value={testDriveFilter}
-          options={[
-            { label: "Scheduled", value: "Scheduled" },
-            { label: "Completed", value: "Completed" },
-            { label: "Cancelled", value: "Cancelled" },
-            { label: "Not Scheduled", value: "Not Scheduled" },
-          ]}
-          onChange={(newVal) => {
-            setTestDriveFilter(newVal);
-            setPagination((p) => ({ ...p, page: 1 }));
-          }}
-        />
+          {userRole === "ADMIN" || userRole === "SUPERADMIN" ? (
+            <div>
+              <BranchConsultantPicker
+                branches={branches}
+                consultants={consultantsList}
+                selectedBranch={branchFilter}
+                selectedConsultant={consultantFilter}
+                onChange={({ branch, consultant }) => {
+                  setBranchFilter(branch);
+                  setConsultantFilter(consultant);
+                  setPagination(p => ({ ...p, page: 1 }));
+                }}
+                placeholder="All Branches & Consultants"
+                showUnassigned={true}
+              />
+            </div>
+          ) : userAssignedBranch ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 12px",
+                borderRadius: "8px",
+                background: "rgba(255, 255, 255, 0.06)",
+                border: "1px solid var(--border)",
+                fontSize: "13px",
+                color: "var(--text-secondary)"
+              }}
+              title="Branch restricted by Admin"
+            >
+              <span>Branch: <strong style={{ textTransform: "capitalize", color: "var(--text-primary)" }}>{(userAssignedBranch || "").replace(/_/g, " ")}</strong></span>
+            </div>
+          ) : (
+            <MultiSelectDropdown
+              label="Branch"
+              allLabel="All Branches"
+              value={branchFilter}
+              options={branches.map((b: string) => ({ label: b, value: b }))}
+              onChange={(newVal) => {
+                setBranchFilter(newVal);
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+            />
+          )}
 
-        {/* Lead Source / Uploader Multi-Select Filter */}
-        <MultiSelectDropdown
-          label="Lead Source"
-          allLabel="All Lead Sources"
-          value={uploaderFilter}
-          options={[
-            { label: "Meta Ads", value: "system" },
-            { label: "All External Uploads", value: "external" },
-            ...(usersList && usersList.length > 0
-              ? [
-                  {
-                    group: "Uploaded by User",
-                    options: usersList.map((u) => ({
-                      label: `${u.username} (${u.role})`,
-                      value: `user:${u.username}`,
-                    })),
-                  },
-                ]
-              : []),
-          ]}
-          onChange={(newVal) => {
-            setUploaderFilter(newVal);
-            setPagination((p) => ({ ...p, page: 1 }));
-          }}
-        />
-
-        {/* Platform Multi-Select Filter */}
-        <MultiSelectDropdown
-          label="Platform"
-          allLabel="All Platforms"
-          value={platformFilter}
-          options={[
-            {
-              group: "Meta Ads",
-              options: [
-                { label: "Facebook", value: "Fb" },
-                { label: "Instagram", value: "Ig" },
-              ],
-            },
-          ]}
-          onChange={(newVal) => {
-            setPlatformFilter(newVal);
-            setPagination((p) => ({ ...p, page: 1 }));
-          }}
-        />
-
-        {/* Date Filter Quick Pills / Custom Modal Trigger */}
-        <button
-          type="button"
-          onClick={handleToggleToday}
-          className={`btn ${isTodayActive ? "btn-primary" : "btn-ghost"}`}
-          style={{ padding: "6px 14px", fontSize: 13, height: 38 }}
-        >
-          Today
-        </button>
-
-        <button
-          type="button"
-          onClick={openDateModal}
-          className={`btn ${startDate || endDate ? "btn-primary" : "btn-ghost"}`}
-          style={{ padding: "6px 14px", fontSize: 13, height: 38, display: "flex", alignItems: "center", gap: 6 }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-            <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" strokeWidth="2.5" strokeLinecap="round" />
-          </svg>
-          {startDate || endDate
-            ? (startDate === endDate ? startDate : `${startDate || "Start"} → ${endDate || "End"}`)
-            : "Date Range"}
-        </button>
-
-        {/* Clear Date Filter Chip */}
-        {(searchInput || search || statusFilter || branchFilter || consultantFilter || testDriveFilter || uploaderFilter || platformFilter || startDate || endDate) && (
-          <button
-            className="btn btn-ghost"
-            onClick={() => {
-              setSearchInput("");
-              setSearch("");
-              setStatusFilter("");
-              setBranchFilter("");
-              setConsultantFilter("");
-              setTestDriveFilter("");
-              setUploaderFilter("");
-              setPlatformFilter("");
-              setStartDate("");
-              setEndDate("");
-              setPagination(p => ({ ...p, page: 1 }));
+          {/* Test Drive Multi-Select Filter */}
+          <MultiSelectDropdown
+            label="Test Drive"
+            allLabel="All Test Drives"
+            value={testDriveFilter}
+            options={[
+              { label: "Scheduled", value: "Scheduled" },
+              { label: "Completed", value: "Completed" },
+              { label: "Cancelled", value: "Cancelled" },
+              { label: "Not Scheduled", value: "Not Scheduled" },
+            ]}
+            onChange={(newVal) => {
+              setTestDriveFilter(newVal);
+              setPagination((p) => ({ ...p, page: 1 }));
             }}
-            style={{ padding: "6px 12px", fontSize: 13, background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", borderColor: "rgba(239, 68, 68, 0.2)" }}
+          />
+
+          {/* Lead Source / Uploader Multi-Select Filter */}
+          <MultiSelectDropdown
+            label="Lead Source"
+            allLabel="All Lead Sources"
+            value={uploaderFilter}
+            options={[
+              { label: "Meta Ads", value: "system" },
+              { label: "All External Uploads", value: "external" },
+              ...(usersList && usersList.length > 0
+                ? [
+                    {
+                      group: "Uploaded by User",
+                      options: usersList.map((u) => ({
+                        label: `${u.username} (${u.role})`,
+                        value: `user:${u.username}`,
+                      })),
+                    },
+                  ]
+                : []),
+            ]}
+            onChange={(newVal) => {
+              setUploaderFilter(newVal);
+              setPagination((p) => ({ ...p, page: 1 }));
+            }}
+          />
+
+          {/* Platform Multi-Select Filter */}
+          <MultiSelectDropdown
+            label="Platform"
+            allLabel="All Platforms"
+            value={platformFilter}
+            options={[
+              {
+                group: "Meta Ads",
+                options: [
+                  { label: "Facebook", value: "Fb" },
+                  { label: "Instagram", value: "Ig" },
+                ],
+              },
+            ]}
+            onChange={(newVal) => {
+              setPlatformFilter(newVal);
+              setPagination((p) => ({ ...p, page: 1 }));
+            }}
+          />
+
+          {/* Date Filter Quick Pills / Custom Modal Trigger */}
+          <button
+            type="button"
+            onClick={handleToggleToday}
+            className={`btn ${isTodayActive ? "btn-primary" : "btn-ghost"}`}
+            style={{ padding: "6px 14px", fontSize: 13, height: 38 }}
           >
-            ✕ Clear Filters
+            Today
           </button>
-        )}
+
+          <button
+            type="button"
+            onClick={openDateModal}
+            className={`btn ${startDate || endDate ? "btn-primary" : "btn-ghost"}`}
+            style={{ padding: "6px 14px", fontSize: 13, height: 38, display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+              <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            {startDate || endDate
+              ? (startDate === endDate ? startDate : `${startDate || "Start"} → ${endDate || "End"}`)
+              : "Date Range"}
+          </button>
+
+          {/* Clear Date Filter Chip */}
+          {(searchInput || search || statusFilter || branchFilter || consultantFilter || testDriveFilter || uploaderFilter || platformFilter || startDate || endDate) && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setSearchInput("");
+                setSearch("");
+                setStatusFilter("");
+                setBranchFilter("");
+                setConsultantFilter("");
+                setTestDriveFilter("");
+                setUploaderFilter("");
+                setPlatformFilter("");
+                setStartDate("");
+                setEndDate("");
+                setPagination(p => ({ ...p, page: 1 }));
+              }}
+              style={{ padding: "6px 12px", fontSize: 13, background: "rgba(239, 68, 68, 0.1)", color: "var(--danger)", borderColor: "rgba(239, 68, 68, 0.2)" }}
+            >
+              ✕ Clear Filters
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -1767,62 +1816,334 @@ export default function DashboardPage() {
             <p>Sync from Google Sheets or adjust your filters</p>
           </div>
         ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th onClick={() => handleHeaderClick("name")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Name">
-                    Name {secondaryField === "name" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th>Phone</th>
-                  <th onClick={() => handleHeaderClick("city")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by City">
-                    City {secondaryField === "city" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th onClick={() => handleHeaderClick("adname")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Ad Name">
-                    Ad Name {secondaryField === "adname" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th onClick={() => handleHeaderClick("branch")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Branch">
-                    Branch {secondaryField === "branch" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th onClick={() => handleHeaderClick("followUpDate1")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Follow Up">
-                    Follow Up {secondaryField === "followUpDate1" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th onClick={() => handleHeaderClick("createdAt")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Created At">
-                    Created At {!secondaryField || secondaryField === "createdAt" ? (primaryOrder === "desc" ? "↓" : "↑") : ""}
-                  </th>
-                  <th onClick={() => handleHeaderClick("status")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Status">
-                    Status {secondaryField === "status" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th>Test Drive</th>
-                  <th>Assigned To</th>
-                  <th>Platform</th>
-                  <th>Remark</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayedLeads.length === 0 ? (
+          <>
+            {/* Desktop Leads Table */}
+            <div className="table-container desktop-leads-table">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={13} style={{ textAlign: "center", padding: "40px" }}>
-                      No leads found.
-                    </td>
+                    <th onClick={() => handleHeaderClick("name")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Name">
+                      Name {secondaryField === "name" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                    <th>Phone</th>
+                    <th onClick={() => handleHeaderClick("city")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by City">
+                      City {secondaryField === "city" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                    <th onClick={() => handleHeaderClick("adname")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Ad Name">
+                      Ad Name {secondaryField === "adname" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                    <th onClick={() => handleHeaderClick("branch")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Branch">
+                      Branch {secondaryField === "branch" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                    <th onClick={() => handleHeaderClick("followUpDate1")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Follow Up">
+                      Follow Up {secondaryField === "followUpDate1" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                    <th onClick={() => handleHeaderClick("createdAt")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Created At">
+                      Created At {!secondaryField || secondaryField === "createdAt" ? (primaryOrder === "desc" ? "↓" : "↑") : ""}
+                    </th>
+                    <th onClick={() => handleHeaderClick("status")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Status">
+                      Status {secondaryField === "status" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
+                    <th>Test Drive</th>
+                    <th>Assigned To</th>
+                    <th>Platform</th>
+                    <th>Remark</th>
+                    <th>Actions</th>
                   </tr>
-                ) : (
-                  displayedLeads.map((lead: Lead) => {
-                    const isLeadLocked = Boolean(
-                      userRole !== "ADMIN" &&
-                      userRole !== "SUPERADMIN" &&
-                      !isSuperAdmin &&
-                      lead.handledBy &&
-                      username &&
-                      lead.handledBy.trim().toLowerCase() !== username.trim().toLowerCase()
-                    );
+                </thead>
+                <tbody>
+                  {displayedLeads.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} style={{ textAlign: "center", padding: "40px" }}>
+                        No leads found.
+                      </td>
+                    </tr>
+                  ) : (
+                    displayedLeads.map((lead: Lead) => {
+                      const isLeadLocked = Boolean(
+                        userRole !== "ADMIN" &&
+                        userRole !== "SUPERADMIN" &&
+                        !isSuperAdmin &&
+                        lead.handledBy &&
+                        username &&
+                        lead.handledBy.trim().toLowerCase() !== username.trim().toLowerCase()
+                      );
 
-                    return (
-                      <tr key={lead.id} style={isLeadLocked ? { background: "rgba(241, 245, 249, 0.35)" } : undefined}>
-                        <td style={{ fontWeight: 600 }}>
-                          <div title={lead.name || undefined}>
-                            {lead.name ? (Array.from(lead.name).length > 35 ? Array.from(lead.name).slice(0, 35).join('') + "..." : lead.name) : ""}
+                      return (
+                        <tr key={lead.id} style={isLeadLocked ? { background: "rgba(241, 245, 249, 0.35)" } : undefined}>
+                          <td style={{ fontWeight: 600 }}>
+                            <div title={lead.name || undefined}>
+                              {lead.name ? (Array.from(lead.name).length > 35 ? Array.from(lead.name).slice(0, 35).join('') + "..." : lead.name) : ""}
+                            </div>
+                            {lead.handledBy && (
+                              <div style={{ marginTop: 4 }}>
+                                <span
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    padding: "1px 7px",
+                                    borderRadius: "10px",
+                                    fontSize: "11px",
+                                    fontWeight: 600,
+                                    background: isLeadLocked ? "rgba(239, 68, 68, 0.08)" : "rgba(37, 99, 235, 0.08)",
+                                    color: isLeadLocked ? "#dc2626" : "#2563eb",
+                                    border: `1px solid ${isLeadLocked ? "rgba(239, 68, 68, 0.2)" : "rgba(37, 99, 235, 0.2)"}`,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                  title={isLeadLocked ? `Locked by ${lead.handledBy} (Read only)` : `Handled by ${lead.handledBy}`}
+                                >
+                                  {isLeadLocked ? (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10 }}>
+                                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                    </svg>
+                                  ) : (
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10 }}>
+                                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                      <circle cx="12" cy="7" r="4"></circle>
+                                    </svg>
+                                  )}
+                                  {isLeadLocked ? `Locked: ${lead.handledBy}` : `Handled by ${lead.handledBy}`}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          <td 
+                            style={{ 
+                              fontFamily: "monospace", 
+                              color: (lead.phone || "").replace(/\D/g, '').length > 10 ? "red" : "inherit" 
+                            }}
+                            title={(lead.phone || "").replace(/\D/g, '').length > 15 ? lead.phone : undefined}
+                          >
+                            {(lead.phone || "").replace(/\D/g, '').length > 15 ? (lead.phone || "").slice(0, 15) + "..." : (lead.phone || "")}
+                          </td>
+                          <td title={lead.city || undefined}>
+                            {lead.city ? (Array.from(lead.city).length > 20 ? Array.from(lead.city).slice(0, 20).join('') + "..." : lead.city) : "—"}
+                          </td>
+                          <td title={lead.adname || undefined} style={{ maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {lead.adname || "—"}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", width: "max-content", maxWidth: "100%" }}>
+                              {lead.branch ? parseBranches(lead.branch).map((b, idx) => (
+                                <span key={idx} style={{ background: "rgba(0,0,0,0.05)", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, whiteSpace: "nowrap", display: "inline-block" }}>
+                                  {b}
+                                </span>
+                              )) : "—"}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ fontSize: "12px", color: "var(--text-secondary)", width: "12px" }}>1.</span>
+                                <input
+                                  type="date"
+                                  value={toISTDateString(lead.followUpDate1)}
+                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up 1: ${toISTDateString(lead.followUpDate1) || 'No date set'}`}
+                                  onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate1', e.target.value)}
+                                  disabled={isLeadLocked}
+                                  className="status-select"
+                                  style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
+                                />
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ fontSize: "12px", color: "var(--text-secondary)", width: "12px" }}>2.</span>
+                                <input
+                                  type="date"
+                                  value={toISTDateString(lead.followUpDate2)}
+                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up 2: ${toISTDateString(lead.followUpDate2) || 'No date set'}`}
+                                  onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate2', e.target.value)}
+                                  disabled={isLeadLocked}
+                                  className="status-select"
+                                  style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ cursor: "pointer" }} title={getFullDateTooltip(lead.createdAt)}>
+                            {formatDate(lead.createdAt)}
+                          </td>
+                          <td>
+                            <select
+                              className={`status-select ${(lead.status === "not_contacted" || lead.status === "created") ? "status-not_contacted" :
+                                lead.status === "pending" ? "status-pending" :
+                                  (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
+                                }`}
+                              value={lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status}
+                              onChange={(e) => handleStatusChange(lead, e.target.value)}
+                              disabled={isLeadLocked}
+                              style={isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : undefined}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Status: ${formatStatusLabel(lead.status)}`}
+                            >
+                              <option value="not_contacted">Not Contacted</option>
+                              <option value="pending">Contacted</option>
+                              <option value="live">Completed</option>
+                              <option value="lost">Lost</option>
+                            </select>
+                          </td>
+                          <td>
+                            <select
+                              className={`status-select ${
+                                (lead.testDrive === "Scheduled" || lead.testDrive === "Yes")
+                                  ? "td-scheduled"
+                                  : lead.testDrive === "Completed"
+                                  ? "td-completed"
+                                  : lead.testDrive === "Cancelled"
+                                  ? "td-cancelled"
+                                  : "td-not_scheduled"
+                              }`}
+                              style={{ padding: "4px", ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {}) }}
+                              value={
+                                lead.testDrive === "Yes"
+                                  ? "Scheduled"
+                                  : lead.testDrive === "No"
+                                  ? "Not Scheduled"
+                                  : lead.testDrive || "Not Scheduled"
+                              }
+                              onChange={(e) => handleTestDriveUpdate(lead, e.target.value)}
+                              disabled={isLeadLocked}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                            >
+                              <option value="Not Scheduled">Not Scheduled</option>
+                              <option value="Scheduled">Scheduled</option>
+                              <option value="Completed">Completed</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                          </td>
+                          <td>
+                            <select
+                              className="status-select"
+                              style={{ padding: "4px", ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {}) }}
+                              value={lead.assignedConsultant || ""}
+                              onChange={(e) => handleAssignedConsultantUpdate(lead, e.target.value)}
+                              disabled={isLeadLocked}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                            >
+                              <option value="">Unassigned</option>
+                              {getConsultantGroupsForLead(lead).map((group) => (
+                                <optgroup key={group.branch} label={group.branch}>
+                                  {group.consultants.map((c) => (
+                                    <option key={`${group.branch}-${c.id}-${c.name}`} value={c.name}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            {(() => {
+                              let plat = lead.platform && !/^\d{4}-\d{2}-\d{2}$/.test(lead.platform) && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(lead.platform)
+                                ? lead.platform.trim()
+                                : "Unknown";
+
+                              // Map DB values to friendly display names
+                              if (plat === 'Fb') plat = 'Facebook';
+                              else if (plat === 'Ig') plat = 'Instagram';
+                              else if (plat && plat.toLowerCase() !== "unknown") {
+                                plat = plat.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                              } else {
+                                plat = "Unknown";
+                              }
+
+                              const uploader = lead.uploadedBy?.username;
+
+                              return (
+                                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                                  <span>{plat}</span>
+                                  {uploader && (
+                                    <span style={{ color: "var(--text-muted)", marginLeft: 5, fontSize: 12, fontWeight: 600 }}>
+                                      ({uploader})
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          <td className="remark-cell">
+                            {lead.remark ? (
+                              <span className="remark-text" title={lead.remark} style={{ whiteSpace: "normal", wordBreak: "break-word", display: "block", maxWidth: "250px" }}>{lead.remark}</span>
+                            ) : (
+                              <span style={{ color: "var(--text-muted)" }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <button
+                                className="add-remark-btn"
+                                onClick={() => {
+                                  if (isLeadLocked) {
+                                    showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead unless "${lead.handledBy}" changes its status back to Not Contacted.`, "error");
+                                    return;
+                                  }
+                                  openRemarkModal(lead);
+                                }}
+                                disabled={isLeadLocked}
+                                style={isLeadLocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                                title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                              >
+                                {lead.remark ? "Edit" : "Add"} Remark
+                              </button>
+                              {isSuperAdmin && (
+                                <button
+                                  className="btn btn-ghost"
+                                  style={{ color: "#ef4444", padding: "6px 8px", borderRadius: 6 }}
+                                  onClick={() => openDeleteModal(lead)}
+                                  title="Delete lead (Superadmin only)"
+                                >
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15, display: "block" }}>
+                                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Leads Cards View */}
+            <div className="mobile-leads-cards">
+              {displayedLeads.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "30px 16px", color: "var(--text-muted)" }}>
+                  No leads found.
+                </div>
+              ) : (
+                displayedLeads.map((lead: Lead) => {
+                  const isLeadLocked = Boolean(
+                    userRole !== "ADMIN" &&
+                    userRole !== "SUPERADMIN" &&
+                    !isSuperAdmin &&
+                    lead.handledBy &&
+                    username &&
+                    lead.handledBy.trim().toLowerCase() !== username.trim().toLowerCase()
+                  );
+
+                  let plat = lead.platform && !/^\d{4}-\d{2}-\d{2}$/.test(lead.platform) && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(lead.platform)
+                    ? lead.platform.trim()
+                    : "Unknown";
+                  if (plat === 'Fb') plat = 'Facebook';
+                  else if (plat === 'Ig') plat = 'Instagram';
+                  else if (plat && plat.toLowerCase() !== "unknown") {
+                    plat = plat.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                  } else {
+                    plat = "Unknown";
+                  }
+                  const uploader = lead.uploadedBy?.username;
+
+                  return (
+                    <div key={`mobile-card-${lead.id}`} className={`lead-mobile-card ${isLeadLocked ? "locked" : ""}`}>
+                      {/* Header: Name + Handled By + Status */}
+                      <div className="lead-mobile-card-header">
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="lead-mobile-card-name" title={lead.name || undefined}>
+                            {lead.name ? (Array.from(lead.name).length > 35 ? Array.from(lead.name).slice(0, 35).join('') + "..." : lead.name) : "Unnamed Lead"}
                           </div>
                           {lead.handledBy && (
                             <div style={{ marginTop: 4 }}>
@@ -1838,9 +2159,7 @@ export default function DashboardPage() {
                                   background: isLeadLocked ? "rgba(239, 68, 68, 0.08)" : "rgba(37, 99, 235, 0.08)",
                                   color: isLeadLocked ? "#dc2626" : "#2563eb",
                                   border: `1px solid ${isLeadLocked ? "rgba(239, 68, 68, 0.2)" : "rgba(37, 99, 235, 0.2)"}`,
-                                  whiteSpace: "nowrap",
                                 }}
-                                title={isLeadLocked ? `Locked by ${lead.handledBy} (Read only)` : `Handled by ${lead.handledBy}`}
                               >
                                 {isLeadLocked ? (
                                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10 }}>
@@ -1857,81 +2176,111 @@ export default function DashboardPage() {
                               </span>
                             </div>
                           )}
-                        </td>
-                        <td 
-                          style={{ 
-                            fontFamily: "monospace", 
-                            color: (lead.phone || "").replace(/\D/g, '').length > 10 ? "red" : "inherit" 
-                          }}
-                          title={(lead.phone || "").replace(/\D/g, '').length > 15 ? lead.phone : undefined}
+                        </div>
+
+                        <select
+                          className={`status-select ${(lead.status === "not_contacted" || lead.status === "created") ? "status-not_contacted" :
+                            lead.status === "pending" ? "status-pending" :
+                              (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
+                            }`}
+                          value={lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status}
+                          onChange={(e) => handleStatusChange(lead, e.target.value)}
+                          disabled={isLeadLocked}
+                          style={{ padding: "4px 8px", fontSize: "12px", borderRadius: "16px", cursor: isLeadLocked ? "not-allowed" : "pointer", flexShrink: 0 }}
                         >
-                          {(lead.phone || "").replace(/\D/g, '').length > 15 ? (lead.phone || "").slice(0, 15) + "..." : (lead.phone || "")}
-                        </td>
-                        <td title={lead.city || undefined}>
-                          {lead.city ? (Array.from(lead.city).length > 20 ? Array.from(lead.city).slice(0, 20).join('') + "..." : lead.city) : "—"}
-                        </td>
-                        <td title={lead.adname || undefined} style={{ maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {lead.adname || "—"}
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", width: "max-content", maxWidth: "100%" }}>
+                          <option value="not_contacted">Not Contacted</option>
+                          <option value="pending">Contacted</option>
+                          <option value="live">Completed</option>
+                          <option value="lost">Lost</option>
+                        </select>
+                      </div>
+
+                      {/* Meta Information Grid */}
+                      <div className="lead-mobile-meta-grid">
+                        <div className="lead-mobile-meta-item">
+                          <span className="lead-mobile-meta-label">Phone</span>
+                          <a
+                            href={`tel:${lead.phone}`}
+                            className="lead-mobile-meta-val"
+                            style={{
+                              color: (lead.phone || "").replace(/\D/g, '').length > 10 ? "#dc2626" : "var(--primary-dark)",
+                              textDecoration: "none",
+                              fontFamily: "monospace",
+                              fontWeight: 600
+                            }}
+                          >
+                            {lead.phone ? parsePhoneNumber(lead.phone) : "—"}
+                          </a>
+                        </div>
+
+                        <div className="lead-mobile-meta-item">
+                          <span className="lead-mobile-meta-label">City</span>
+                          <span className="lead-mobile-meta-val" title={lead.city || undefined}>
+                            {lead.city ? (Array.from(lead.city).length > 20 ? Array.from(lead.city).slice(0, 20).join('') + "..." : lead.city) : "—"}
+                          </span>
+                        </div>
+
+                        <div className="lead-mobile-meta-item">
+                          <span className="lead-mobile-meta-label">Branch</span>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, overflow: "hidden" }}>
                             {lead.branch ? parseBranches(lead.branch).map((b, idx) => (
-                              <span key={idx} style={{ background: "rgba(0,0,0,0.05)", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, whiteSpace: "nowrap", display: "inline-block" }}>
+                              <span key={idx} style={{ background: "rgba(0,0,0,0.06)", padding: "1px 6px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {b}
                               </span>
                             )) : "—"}
                           </div>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span style={{ fontSize: "12px", color: "var(--text-secondary)", width: "12px" }}>1.</span>
-                              <input
-                                type="date"
-                                value={toISTDateString(lead.followUpDate1)}
-                                title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up 1: ${toISTDateString(lead.followUpDate1) || 'No date set'}`}
-                                onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate1', e.target.value)}
-                                disabled={isLeadLocked}
-                                className="status-select"
-                                style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
-                              />
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span style={{ fontSize: "12px", color: "var(--text-secondary)", width: "12px" }}>2.</span>
-                              <input
-                                type="date"
-                                value={toISTDateString(lead.followUpDate2)}
-                                title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up 2: ${toISTDateString(lead.followUpDate2) || 'No date set'}`}
-                                onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate2', e.target.value)}
-                                disabled={isLeadLocked}
-                                className="status-select"
-                                style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
-                              />
-                            </div>
+                        </div>
+
+                        <div className="lead-mobile-meta-item">
+                          <span className="lead-mobile-meta-label">Source / Plat</span>
+                          <span className="lead-mobile-meta-val" title={`${plat} ${uploader ? `(${uploader})` : ""}`}>
+                            {plat} {uploader ? `(${uploader})` : ""}
+                          </span>
+                        </div>
+
+                        {lead.adname && (
+                          <div className="lead-mobile-meta-item" style={{ gridColumn: "span 2" }}>
+                            <span className="lead-mobile-meta-label">Ad Name</span>
+                            <span className="lead-mobile-meta-val" title={lead.adname}>{lead.adname}</span>
                           </div>
-                        </td>
-                        <td style={{ cursor: "pointer" }} title={getFullDateTooltip(lead.createdAt)}>
-                          {formatDate(lead.createdAt)}
-                        </td>
-                        <td>
-                          <select
-                            className={`status-select ${(lead.status === "not_contacted" || lead.status === "created") ? "status-not_contacted" :
-                              lead.status === "pending" ? "status-pending" :
-                                (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
-                              }`}
-                            value={lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status}
-                            onChange={(e) => handleStatusChange(lead, e.target.value)}
+                        )}
+
+                        <div className="lead-mobile-meta-item" style={{ gridColumn: "span 2" }}>
+                          <span className="lead-mobile-meta-label">Created Date</span>
+                          <span className="lead-mobile-meta-val" style={{ fontSize: "12px", color: "var(--text-secondary)" }} title={getFullDateTooltip(lead.createdAt)}>
+                            {formatDate(lead.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Operational Inputs (Follow-ups, Test Drive, Assigned Consultant) */}
+                      <div className="lead-mobile-controls-grid">
+                        <div className="lead-mobile-control-item">
+                          <span className="lead-mobile-meta-label">Follow-Up 1</span>
+                          <input
+                            type="date"
+                            value={toISTDateString(lead.followUpDate1)}
+                            onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate1', e.target.value)}
                             disabled={isLeadLocked}
-                            style={isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : undefined}
-                            title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Status: ${formatStatusLabel(lead.status)}`}
-                          >
-                            <option value="not_contacted">Not Contacted</option>
-                            <option value="pending">Contacted</option>
-                            <option value="live">Completed</option>
-                            <option value="lost">Lost</option>
-                          </select>
-                        </td>
-                        <td>
+                            className="status-select"
+                            style={{ border: "1px solid var(--border)", background: "#fff", padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6 }}
+                          />
+                        </div>
+
+                        <div className="lead-mobile-control-item">
+                          <span className="lead-mobile-meta-label">Follow-Up 2</span>
+                          <input
+                            type="date"
+                            value={toISTDateString(lead.followUpDate2)}
+                            onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate2', e.target.value)}
+                            disabled={isLeadLocked}
+                            className="status-select"
+                            style={{ border: "1px solid var(--border)", background: "#fff", padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6 }}
+                          />
+                        </div>
+
+                        <div className="lead-mobile-control-item">
+                          <span className="lead-mobile-meta-label">Test Drive</span>
                           <select
                             className={`status-select ${
                               (lead.testDrive === "Scheduled" || lead.testDrive === "Yes")
@@ -1942,7 +2291,7 @@ export default function DashboardPage() {
                                 ? "td-cancelled"
                                 : "td-not_scheduled"
                             }`}
-                            style={{ padding: "4px", ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {}) }}
+                            style={{ padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6, ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {}) }}
                             value={
                               lead.testDrive === "Yes"
                                 ? "Scheduled"
@@ -1952,22 +2301,22 @@ export default function DashboardPage() {
                             }
                             onChange={(e) => handleTestDriveUpdate(lead, e.target.value)}
                             disabled={isLeadLocked}
-                            title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
                           >
                             <option value="Not Scheduled">Not Scheduled</option>
                             <option value="Scheduled">Scheduled</option>
                             <option value="Completed">Completed</option>
                             <option value="Cancelled">Cancelled</option>
                           </select>
-                        </td>
-                        <td>
+                        </div>
+
+                        <div className="lead-mobile-control-item">
+                          <span className="lead-mobile-meta-label">Assigned To</span>
                           <select
                             className="status-select"
-                            style={{ padding: "4px", ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {}) }}
+                            style={{ padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6, ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {}) }}
                             value={lead.assignedConsultant || ""}
                             onChange={(e) => handleAssignedConsultantUpdate(lead, e.target.value)}
                             disabled={isLeadLocked}
-                            title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
                           >
                             <option value="">Unassigned</option>
                             {getConsultantGroupsForLead(lead).map((group) => (
@@ -1980,82 +2329,56 @@ export default function DashboardPage() {
                               </optgroup>
                             ))}
                           </select>
-                        </td>
-                        <td>
-                          {(() => {
-                            let plat = lead.platform && !/^\d{4}-\d{2}-\d{2}$/.test(lead.platform) && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(lead.platform)
-                              ? lead.platform.trim()
-                              : "Unknown";
+                        </div>
+                      </div>
 
-                            // Map DB values to friendly display names
-                            if (plat === 'Fb') plat = 'Facebook';
-                            else if (plat === 'Ig') plat = 'Instagram';
-                            else if (plat && plat.toLowerCase() !== "unknown") {
-                              plat = plat.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                            } else {
-                              plat = "Unknown";
+                      {/* Remark Callout */}
+                      {lead.remark && (
+                        <div className="lead-mobile-remark" title={lead.remark}>
+                          "{lead.remark}"
+                        </div>
+                      )}
+
+                      {/* Card Actions */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 2 }}>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => {
+                            if (isLeadLocked) {
+                              showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead unless "${lead.handledBy}" changes its status back to Not Contacted.`, "error");
+                              return;
                             }
+                            openRemarkModal(lead);
+                          }}
+                          disabled={isLeadLocked}
+                          style={{ flex: 1, padding: "8px 12px", fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 8, borderColor: "var(--border)" }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                          {lead.remark ? "Edit Remark" : "Add Remark"}
+                        </button>
 
-                            const uploader = lead.uploadedBy?.username;
-
-                            return (
-                              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
-                                <span>{plat}</span>
-                                {uploader && (
-                                  <span style={{ color: "var(--text-muted)", marginLeft: 5, fontSize: 12, fontWeight: 600 }}>
-                                    ({uploader})
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td className="remark-cell">
-                          {lead.remark ? (
-                            <span className="remark-text" title={lead.remark} style={{ whiteSpace: "normal", wordBreak: "break-word", display: "block", maxWidth: "250px" }}>{lead.remark}</span>
-                          ) : (
-                            <span style={{ color: "var(--text-muted)" }}>—</span>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <button
-                              className="add-remark-btn"
-                              onClick={() => {
-                                if (isLeadLocked) {
-                                  showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead unless "${lead.handledBy}" changes its status back to Not Contacted.`, "error");
-                                  return;
-                                }
-                                openRemarkModal(lead);
-                              }}
-                              disabled={isLeadLocked}
-                              style={isLeadLocked ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
-                            >
-                              {lead.remark ? "Edit" : "Add"} Remark
-                            </button>
-                            {isSuperAdmin && (
-                              <button
-                                className="btn btn-ghost"
-                                style={{ color: "#ef4444", padding: "6px 8px", borderRadius: 6 }}
-                                onClick={() => openDeleteModal(lead)}
-                                title="Delete lead (Superadmin only)"
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15, display: "block" }}>
-                                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                        {isSuperAdmin && (
+                          <button
+                            className="btn btn-ghost"
+                            style={{ color: "#ef4444", padding: "8px 12px", borderRadius: 8, borderColor: "rgba(239, 68, 68, 0.2)", background: "rgba(239, 68, 68, 0.05)" }}
+                            onClick={() => openDeleteModal(lead)}
+                            title="Delete lead (Superadmin only)"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15 }}>
+                              <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
         )}
       </div>
 

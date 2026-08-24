@@ -232,21 +232,23 @@ export default function CalendarPage() {
         {loading ? (
           <div style={{ padding: 40, textAlign: "center" }}><span className="spinner" /> Loading calendar...</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ 
-              display: "grid", 
-              gridTemplateColumns: "repeat(7, 1fr)", 
-              borderBottom: "1px solid var(--border)",
-              background: "rgba(0,0,0,0.02)"
-            }}>
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} style={{ padding: "12px", textAlign: "center", fontWeight: 600, fontSize: 13, borderRight: "1px solid var(--border)" }}>
-                  {d}
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-              {renderCells()}
+          <div style={{ width: "100%", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ display: "flex", flexDirection: "column", minWidth: "680px" }}>
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "repeat(7, 1fr)", 
+                borderBottom: "1px solid var(--border)",
+                background: "rgba(0,0,0,0.02)"
+              }}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                  <div key={d} style={{ padding: "12px", textAlign: "center", fontWeight: 600, fontSize: 13, borderRight: "1px solid var(--border)" }}>
+                    {d}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                {renderCells()}
+              </div>
             </div>
           </div>
         )}
@@ -274,6 +276,8 @@ export default function CalendarPage() {
                           display: "flex", 
                           justifyContent: "space-between", 
                           alignItems: "flex-start", 
+                          flexWrap: "wrap",
+                          gap: "16px",
                           background: "#fff", 
                           padding: "20px", 
                           borderRadius: "12px",
@@ -282,7 +286,7 @@ export default function CalendarPage() {
                           marginBottom: "16px"
                         }}
                       >
-                        <div style={{ flex: 1, paddingRight: "24px" }}>
+                        <div style={{ flex: "1 1 280px", minWidth: 0, paddingRight: "12px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
                             <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-primary)", letterSpacing: "-0.3px" }}>{lead.name}</div>
                             <select 
@@ -334,7 +338,7 @@ export default function CalendarPage() {
                           )}
                         </div>
                         
-                        <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "flex-end", minWidth: "180px" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "flex-start", flex: "1 1 220px", minWidth: 0, width: "100%", maxWidth: "100%" }}>
                           <div style={{ display: "flex", gap: 8 }}>
                             {isF1 && <span style={{ background: "var(--primary-light)", color: "#fff", padding: "4px 12px", borderRadius: "20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>1st Follow Up</span>}
                             {isF2 && <span style={{ background: "var(--primary)", color: "#fff", padding: "4px 12px", borderRadius: "20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>2nd Follow Up</span>}

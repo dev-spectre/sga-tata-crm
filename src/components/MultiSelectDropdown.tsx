@@ -112,11 +112,12 @@ export default function MultiSelectDropdown({
   const hasSelection = selectedValues.length > 0;
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', display: 'inline-block', ...style }}>
+    <div ref={containerRef} className="multi-select-dropdown" style={{ position: 'relative', display: 'inline-block', ...style }}>
       {/* Trigger Pill Button */}
       <div
         onClick={() => setIsOpen(!isOpen)}
         style={{
+          width: '100%',
           height: 38,
           padding: '0 10px',
           fontSize: 13,
@@ -125,17 +126,19 @@ export default function MultiSelectDropdown({
           border: hasSelection ? '1.5px solid #10b981' : '1.5px solid #cbd5e1',
           color: hasSelection ? '#047857' : '#475569',
           borderRadius: 8,
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
           gap: 6,
           cursor: 'pointer',
           whiteSpace: 'nowrap',
           transition: 'all 0.15s ease',
           userSelect: 'none',
           boxShadow: isOpen ? '0 0 0 3px rgba(16, 185, 129, 0.15)' : 'none',
+          boxSizing: 'border-box',
         }}
       >
-        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>{getButtonText()}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>{getButtonText()}</span>
 
         {hasSelection && (
           <span
