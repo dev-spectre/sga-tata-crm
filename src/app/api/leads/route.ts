@@ -39,8 +39,20 @@ export async function GET(request: NextRequest) {
     const consultant = searchParams.get('consultant') || '';
     const startDate = searchParams.get('startDate') || '';
     const endDate = searchParams.get('endDate') || '';
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const followUpDate = searchParams.get('followUpDate') || '';
+    const followUpStartDate = searchParams.get('followUpStartDate') || followUpDate;
+    const followUpEndDate = searchParams.get('followUpEndDate') || followUpDate;
+    const hasFollowUp = searchParams.get('hasFollowUp') === 'true' || searchParams.get('hasFollowUp') === '1' || searchParams.get('onlyFollowUps') === 'true' || Boolean(followUpStartDate || followUpEndDate);
+    const fields = searchParams.get('fields') || '';
+    const isCalendar = fields === 'calendar';
+    const isExport = searchParams.get('export') === 'true';
+    const uploadedById = searchParams.get('uploadedById');
+
+    const requestedLimit = parseInt(searchParams.get('limit') || '20');
+    const maxAllowedLimit = (isExport || uploadedById) ? 10000 : (hasFollowUp ? 5000 : 20);
+    const limit = Math.min(Math.max(1, isNaN(requestedLimit) ? 20 : requestedLimit), maxAllowedLimit);
+
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
     const skip = (page - 1) * limit;
 
     const validFields = ['name', 'city', 'adname', 'branch', 'status', 'phone', 'followUpDate1', 'followUpDate2'];
@@ -195,7 +207,38 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const uploadedById = searchParams.get('uploadedById');
+    if (followUpStartDate || followUpEndDate) {
+      const f1Cond: any = {};
+      const f2Cond: any = {};
+      if (followUpStartDate) {
+        f1Cond.gte = new Date(`${followUpStartDate}T00:00:00+05:30`);
+        f2Cond.gte = new Date(`${followUpStartDate}T00:00:00+05:30`);
+      }
+      if (followUpEndDate) {
+        f1Cond.lte = new Date(`${followUpEndDate}T23:59:59.999+05:30`);
+        f2Cond.lte = new Date(`${followUpEndDate}T23:59:59.999+05:30`);
+      }
+      statsWhere.AND = [
+        ...(statsWhere.AND || []),
+        {
+          OR: [
+            { followUpDate1: f1Cond },
+            { followUpDate2: f2Cond },
+          ]
+        }
+      ];
+    } else if (hasFollowUp) {
+      statsWhere.AND = [
+        ...(statsWhere.AND || []),
+        {
+          OR: [
+            { followUpDate1: { not: null } },
+            { followUpDate2: { not: null } },
+          ]
+        }
+      ];
+    }
+
     if (uploadedById) {
       const parsedId = parseInt(uploadedById);
       if (!isNaN(parsedId)) {
@@ -262,123 +305,178 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    const [leads, total, statusCounts, maxAggregate] = await Promise.all([
-      prisma.lead.findMany({
-        where,
-        orderBy,
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          city: true,
-          adname: true,
-          branch: true,
-          followUpDate1: true,
-          followUpDate2: true,
-          remark: true,
-          status: true,
-          testDrive: true,
-          assignedConsultant: true,
-          platform: true,
-          source: true,
-          uploadedById: true,
-          uploadedBy: {
-            select: { id: true, username: true }
-          },
-          uploadedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.lead.count({ where }),
-      prisma.lead.groupBy({
-        where: status ? where : statsWhere,
-        by: ['status'],
-        _count: {
-          status: true,
-        },
-      }),
-      prisma.lead.aggregate({
-        where,
-        _max: {
-          updatedAt: true,
-        },
-      }),
-    ]);
-    
+    const skipStats = searchParams.get('skipStats') === 'true' || searchParams.get('skipStats') === '1';
+    const skipActivities = searchParams.get('skipActivities') === 'true' || searchParams.get('skipActivities') === '1' || isCalendar;
+
+    const leadSelect = isCalendar ? {
+      id: true,
+      name: true,
+      phone: true,
+      city: true,
+      adname: true,
+      branch: true,
+      followUpDate1: true,
+      followUpDate2: true,
+      remark: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+    } : {
+      id: true,
+      name: true,
+      phone: true,
+      city: true,
+      adname: true,
+      branch: true,
+      followUpDate1: true,
+      followUpDate2: true,
+      remark: true,
+      status: true,
+      testDrive: true,
+      assignedConsultant: true,
+      platform: true,
+      source: true,
+      uploadedById: true,
+      uploadedBy: {
+        select: { id: true, username: true }
+      },
+      uploadedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    };
+
+    let leads: any[] = [];
+    let total = 0;
     let totalLeads = 0;
     let notContactedLeads = 0;
     let pendingLeads = 0;
     let liveLeads = 0;
     let lostLeads = 0;
+    let maxUpdatedAt: string | null = null;
 
-    statusCounts.forEach((group) => {
-      const count = group._count.status;
-      totalLeads += count;
-      if (group.status === 'not_contacted' || group.status === 'created') {
-        notContactedLeads += count;
-      } else if (group.status === 'pending') {
-        pendingLeads += count;
-      } else if (['live', 'closed_successful'].includes(group.status)) {
-        liveLeads += count;
-      } else if (['lost', 'closed_unsuccessful'].includes(group.status)) {
-        lostLeads += count;
+    const includeTotal = searchParams.get('includeTotal') === 'true' || Boolean(followUpDate || followUpStartDate) || !skipStats;
+
+    if (skipStats) {
+      if (includeTotal) {
+        const [dbLeads, dbTotal] = await Promise.all([
+          prisma.lead.findMany({
+            where,
+            orderBy,
+            skip,
+            take: limit,
+            select: leadSelect,
+          }),
+          prisma.lead.count({ where }),
+        ]);
+        leads = dbLeads;
+        total = dbTotal;
+      } else {
+        leads = await prisma.lead.findMany({
+          where,
+          orderBy,
+          skip,
+          take: limit,
+          select: leadSelect,
+        });
       }
-    });
+    } else {
+      const [dbLeads, dbTotal, statusCounts, maxAggregate] = await Promise.all([
+        prisma.lead.findMany({
+          where,
+          orderBy,
+          skip,
+          take: limit,
+          select: leadSelect,
+        }),
+        prisma.lead.count({ where }),
+        prisma.lead.groupBy({
+          where: status ? where : statsWhere,
+          by: ['status'],
+          _count: {
+            status: true,
+          },
+        }),
+        prisma.lead.aggregate({
+          where,
+          _max: {
+            updatedAt: true,
+          },
+        }),
+      ]);
 
-    const maxUpdatedAt = maxAggregate._max.updatedAt || null;
-    const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
-    const leadIds = leads.map((l) => l.id);
+      leads = dbLeads;
+      total = dbTotal;
+      if (maxAggregate?._max?.updatedAt) {
+        maxUpdatedAt = maxAggregate._max.updatedAt.toISOString();
+      }
 
-    const [{ staffUsernames, staffUserById }, recentActivities] = await Promise.all([
-      getCachedStaffUsers(),
-      leadIds.length > 0
-        ? prisma.leadActivity.findMany({
-            where: {
-              leadId: { in: leadIds },
-              username: {
-                notIn: [superUsername, 'sudo'],
-                mode: 'insensitive',
-              },
-            },
-            orderBy: {
-              createdAt: 'asc',
-            },
-            select: {
-              id: true,
-              leadId: true,
-              userId: true,
-              username: true,
-              action: true,
-              oldValue: true,
-              newValue: true,
-              createdAt: true,
-            },
-          })
-        : [],
-    ]);
-
-    const activitiesByLead = new Map<number, typeof recentActivities>();
-    for (const act of recentActivities) {
-      const list = activitiesByLead.get(act.leadId) || [];
-      list.push(act);
-      activitiesByLead.set(act.leadId, list);
+      statusCounts.forEach((group) => {
+        const count = group._count.status;
+        totalLeads += count;
+        if (group.status === 'not_contacted' || group.status === 'created') {
+          notContactedLeads += count;
+        } else if (group.status === 'pending') {
+          pendingLeads += count;
+        } else if (['live', 'closed_successful'].includes(group.status)) {
+          liveLeads += count;
+        } else if (['lost', 'closed_unsuccessful'].includes(group.status)) {
+          lostLeads += count;
+        }
+      });
     }
 
-    const enrichedLeads = leads.map((l) => {
-      const leadActs = activitiesByLead.get(l.id) || [];
-      const handler = resolveLeadHandler(l, leadActs, staffUsernames, staffUserById);
-      return {
-        ...l,
-        handledBy: handler,
-      };
-    });
+    let enrichedLeads: any[] = leads;
+
+    if (!skipActivities && leads.length > 0) {
+      const superUsername = (process.env.SUPERADMIN_USERNAME || 'sudo').trim().toLowerCase();
+      const leadIds = leads.map((l) => l.id);
+
+      const [{ staffUsernames, staffUserById }, recentActivities] = await Promise.all([
+        getCachedStaffUsers(),
+        prisma.leadActivity.findMany({
+          where: {
+            leadId: { in: leadIds },
+            username: {
+              notIn: [superUsername, 'sudo'],
+              mode: 'insensitive',
+            },
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+          select: {
+            id: true,
+            leadId: true,
+            userId: true,
+            username: true,
+            action: true,
+            oldValue: true,
+            newValue: true,
+            createdAt: true,
+          },
+        }),
+      ]);
+
+      const activitiesByLead = new Map<number, typeof recentActivities>();
+      for (const act of recentActivities) {
+        const list = activitiesByLead.get(act.leadId) || [];
+        list.push(act);
+        activitiesByLead.set(act.leadId, list);
+      }
+
+      enrichedLeads = leads.map((l) => {
+        const leadActs = activitiesByLead.get(l.id) || [];
+        const handler = resolveLeadHandler(l, leadActs, staffUsernames, staffUserById);
+        return {
+          ...l,
+          handledBy: handler,
+        };
+      });
+    }
 
     return NextResponse.json({
       leads: enrichedLeads,
-      maxUpdatedAt: maxUpdatedAt ? maxUpdatedAt.toISOString() : null,
+      maxUpdatedAt: maxUpdatedAt || null,
       userRole: currentUser?.role || 'USER',
       assignedBranch: currentUser?.assignedBranch || null,
       assignedPlatform: currentUser?.assignedPlatform || null,
@@ -388,9 +486,9 @@ export async function GET(request: NextRequest) {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
       },
-      stats: {
+      stats: skipStats ? null : {
         total: totalLeads,
         notContacted: notContactedLeads,
         pending: pendingLeads,

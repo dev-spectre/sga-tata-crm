@@ -13,13 +13,21 @@ interface UserAccount {
   createdAt: string;
 }
 
+// Persistent client caches across page navigations
+let cachedUsersList: UserAccount[] | null = null;
+let cachedBranchesList: string[] | null = null;
+let cachedPlatformsList: string[] | null = null;
+let cachedCurrentUserObj: any = null;
+let accountsCacheTimestamp = 0;
+const CACHE_TTL_ACCOUNTS = 60000;
+
 export default function AccountsPage() {
-  const [users, setUsers] = useState<UserAccount[]>([]);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [platforms, setPlatforms] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [users, setUsers] = useState<UserAccount[]>(() => cachedUsersList || []);
+  const [branches, setBranches] = useState<string[]>(() => cachedBranchesList || []);
+  const [platforms, setPlatforms] = useState<string[]>(() => cachedPlatformsList || []);
+  const [loading, setLoading] = useState(() => !cachedUsersList);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(() => cachedCurrentUserObj?.role || null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(() => cachedCurrentUserObj?.userId || null);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "activity">("users");
   const [userActivity, setUserActivity] = useState<any[]>([]);
@@ -47,13 +55,20 @@ export default function AccountsPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const [isSuperAdminUser, setIsSuperAdminUser] = useState(false);
+  const [isSuperAdminUser, setIsSuperAdminUser] = useState<boolean>(() => Boolean(cachedCurrentUserObj?.isSuperAdmin || cachedCurrentUserObj?.role === "SUPERADMIN"));
 
-  const fetchCurrentUser = useCallback(async () => {
+  const fetchCurrentUser = useCallback(async (force = false) => {
+    if (!force && cachedCurrentUserObj && Date.now() - accountsCacheTimestamp < CACHE_TTL_ACCOUNTS) {
+      setCurrentUserRole(cachedCurrentUserObj.role);
+      setCurrentUserId(cachedCurrentUserObj.userId);
+      setIsSuperAdminUser(Boolean(cachedCurrentUserObj.isSuperAdmin || cachedCurrentUserObj.role === "SUPERADMIN"));
+      return;
+    }
     try {
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (res.ok && data.user) {
+        cachedCurrentUserObj = data.user;
         setCurrentUserRole(data.user.role);
         setCurrentUserId(data.user.userId);
         setIsSuperAdminUser(Boolean(data.user.isSuperAdmin || data.user.role === "SUPERADMIN"));
@@ -64,11 +79,16 @@ export default function AccountsPage() {
   }, []);
 
 
-  const fetchBranches = useCallback(async () => {
+  const fetchBranches = useCallback(async (force = false) => {
+    if (!force && cachedBranchesList && Date.now() - accountsCacheTimestamp < CACHE_TTL_ACCOUNTS) {
+      setBranches(cachedBranchesList);
+      return;
+    }
     try {
       const res = await fetch("/api/branches");
       const data = await res.json();
       if (res.ok && Array.isArray(data.branches)) {
+        cachedBranchesList = data.branches;
         setBranches(data.branches);
       }
     } catch {
@@ -76,11 +96,16 @@ export default function AccountsPage() {
     }
   }, []);
 
-  const fetchPlatforms = useCallback(async () => {
+  const fetchPlatforms = useCallback(async (force = false) => {
+    if (!force && cachedPlatformsList && Date.now() - accountsCacheTimestamp < CACHE_TTL_ACCOUNTS) {
+      setPlatforms(cachedPlatformsList);
+      return;
+    }
     try {
       const res = await fetch("/api/platforms");
       const data = await res.json();
       if (res.ok && Array.isArray(data.platforms)) {
+        cachedPlatformsList = data.platforms;
         setPlatforms(data.platforms);
       }
     } catch {
@@ -88,11 +113,18 @@ export default function AccountsPage() {
     }
   }, []);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (force = false) => {
+    if (!force && cachedUsersList && Date.now() - accountsCacheTimestamp < CACHE_TTL_ACCOUNTS) {
+      setUsers(cachedUsersList);
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch("/api/users");
       const data = await res.json();
       if (res.ok && Array.isArray(data.users)) {
+        cachedUsersList = data.users;
+        accountsCacheTimestamp = Date.now();
         setUsers(data.users);
       } else if (res.status === 403) {
         showToast("Access denied. Admin rights required.", "error");

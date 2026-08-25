@@ -6,15 +6,17 @@ import { getCachedSettings } from '@/lib/settings';
 interface ColumnMapping {
   name: number;
   phone: number;
-  city: number;
+  city?: number;
   adname?: number;
   branch?: number;
   followUpDate1?: number;
   followUpDate2?: number;
-  createdAt: number;
-  remark: number;
-  status: number;
+  createdAt?: number;
+  remark?: number;
+  status?: number;
   platform?: number;
+  testDrive?: number;
+  assignedConsultant?: number;
 }
 
 const DEFAULT_MAPPING: ColumnMapping = {
@@ -29,6 +31,8 @@ const DEFAULT_MAPPING: ColumnMapping = {
   followUpDate1: 8,
   followUpDate2: 9,
   platform: 10,
+  testDrive: 11,
+  assignedConsultant: 12,
 };
 
 function isLowQualityLead(name: string, phone: string, city: string): boolean {
@@ -89,7 +93,7 @@ export async function performSheetSync() {
     const phone = parsePhoneNumber(rawPhone);
     if (phone) candidatePhones.add(phone);
 
-    const createdAtRaw = (row[mapping.createdAt] || '').toString().trim();
+    const createdAtRaw = (mapping.createdAt !== undefined && mapping.createdAt >= 0 ? (row[mapping.createdAt] || '') : '').toString().trim();
     const baseFp = `${phone}|${createdAtRaw}`;
     const cnt = preScanCounts.get(baseFp) || 0;
     preScanCounts.set(baseFp, cnt + 1);
@@ -141,7 +145,7 @@ export async function performSheetSync() {
   const existingByFingerprint = new Map<string, typeof existingLeads[0]>();
   const existingByPhone = new Map<string, typeof existingLeads[0]>();
   const existingByRow = new Map<number, typeof existingLeads[0]>();
-  const activeDbIds = new Set<number>();
+  const claimedDbIds = new Set<number>();
 
   for (const lead of existingLeads) {
     if (lead.fingerprint && !existingByFingerprint.has(lead.fingerprint)) {
@@ -158,7 +162,6 @@ export async function performSheetSync() {
 
   const fingerprintCounts = new Map<string, number>();
   const seenFullData = new Set<string>();
-  const currentSheetPhones = new Set<string>();
 
   const toCreate: any[] = [];
   const toUpdate: { id: number; data: any }[] = [];
@@ -171,13 +174,13 @@ export async function performSheetSync() {
 
     const rawName = (row[mapping.name] || '').toString();
     const rawPhone = (row[mapping.phone] || '').toString();
-    const rawCity = (row[mapping.city] || '').toString();
+    const rawCity = mapping.city !== undefined && mapping.city >= 0 ? (row[mapping.city] || '').toString() : '';
 
     const name = sanitizeField(rawName);
     const phone = parsePhoneNumber(rawPhone);
     const city = sanitizeField(rawCity);
 
-    const rawPlatform = mapping.platform !== undefined ? (row[mapping.platform] || '').toString() : '';
+    const rawPlatform = mapping.platform !== undefined && mapping.platform >= 0 ? (row[mapping.platform] || '').toString() : '';
     let platform = sanitizeField(rawPlatform);
     if (platform) {
       platform = platform.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ').trim();
@@ -189,10 +192,10 @@ export async function performSheetSync() {
       platform = 'Unknown';
     }
     
-    const rawAdname = mapping.adname !== undefined ? (row[mapping.adname] || '').toString() : '';
-    const rawBranch = mapping.branch !== undefined ? (row[mapping.branch] || '').toString() : '';
-    const rawFollowUpDate1 = mapping.followUpDate1 !== undefined ? (row[mapping.followUpDate1] || '').toString() : '';
-    const rawFollowUpDate2 = mapping.followUpDate2 !== undefined ? (row[mapping.followUpDate2] || '').toString() : '';
+    const rawAdname = mapping.adname !== undefined && mapping.adname >= 0 ? (row[mapping.adname] || '').toString() : '';
+    const rawBranch = mapping.branch !== undefined && mapping.branch >= 0 ? (row[mapping.branch] || '').toString() : '';
+    const rawFollowUpDate1 = mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0 ? (row[mapping.followUpDate1] || '').toString() : '';
+    const rawFollowUpDate2 = mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0 ? (row[mapping.followUpDate2] || '').toString() : '';
     const adname = sanitizeField(rawAdname);
     const branch = sanitizeField(rawBranch);
 
@@ -208,18 +211,14 @@ export async function performSheetSync() {
       if (!isNaN(parsed.getTime())) followUpDate2 = parsed;
     }
 
-    if (phone) {
-      currentSheetPhones.add(phone);
-    }
-
     if (isLowQualityLead(name, phone, city)) {
       skippedLowQuality++;
       continue;
     }
 
-    const createdAtRaw = (row[mapping.createdAt] || '').toString().trim();
-    const remark = sanitizeField((row[mapping.remark] || '').toString()) || null;
-    const statusRaw = (row[mapping.status] || '').toString().trim().toLowerCase();
+    const createdAtRaw = (mapping.createdAt !== undefined && mapping.createdAt >= 0 ? (row[mapping.createdAt] || '') : '').toString().trim();
+    const remark = (mapping.remark !== undefined && mapping.remark >= 0 ? sanitizeField((row[mapping.remark] || '').toString()) : null) || null;
+    const statusRaw = (mapping.status !== undefined && mapping.status >= 0 ? (row[mapping.status] || '').toString() : '').trim().toLowerCase();
 
     // Deduplicate exact identical rows from the sheet
     const fullDataHash = `${name}|${phone}|${city}|${adname}|${branch}|${createdAtRaw}|${remark || ''}|${statusRaw}|${followUpDate1 ? followUpDate1.getTime() : ''}|${followUpDate2 ? followUpDate2.getTime() : ''}|${platform}`;
@@ -245,25 +244,45 @@ export async function performSheetSync() {
 
     const fingerprint = `${baseFingerprint}|${count}`;
 
-    // Multi-stage fallback lead matching
-    let existing = existingByFingerprint.get(fingerprint);
-    if (!existing && phone) {
-      existing = existingByPhone.get(phone);
+    // Multi-stage fallback lead matching with strict single-claim isolation:
+    // Prevents multiple distinct sheet rows with the same phone from clobbering each other
+    let existing: typeof existingLeads[0] | undefined = undefined;
+
+    // 1. Try exact fingerprint match
+    if (existingByFingerprint.has(fingerprint)) {
+      const cand = existingByFingerprint.get(fingerprint)!;
+      if (!claimedDbIds.has(cand.id)) {
+        existing = cand;
+      }
     }
-    if (!existing && rowNumber) {
-      existing = existingByRow.get(rowNumber);
+
+    // 2. Try match by sheetRow + sheetId if phone matches
+    if (!existing && rowNumber && existingByRow.has(rowNumber)) {
+      const cand = existingByRow.get(rowNumber)!;
+      if (!claimedDbIds.has(cand.id) && cand.sheetId === settings.selectedSpreadsheetId) {
+        const candPhone = parsePhoneNumber(cand.phone);
+        if (candPhone && phone && candPhone === phone) {
+          existing = cand;
+        }
+      }
+    }
+
+    // 3. Fallback to phone match ONLY if this DB lead has not already been claimed
+    if (!existing && phone && existingByPhone.has(phone)) {
+      const cand = existingByPhone.get(phone)!;
+      if (!claimedDbIds.has(cand.id)) {
+        existing = cand;
+      }
     }
 
     if (existing) {
-      activeDbIds.add(existing.id);
+      claimedDbIds.add(existing.id);
+      if (existing.fingerprint) existingByFingerprint.delete(existing.fingerprint);
+      if (phone) existingByPhone.delete(phone);
+      if (existing.sheetRow) existingByRow.delete(existing.sheetRow);
 
-      // RULE: DB takes absolute priority over Google Sheets for status, remark, follow-up dates, test drive, and assigned consultant.
-      const finalStatus = existing.status || (statusRaw ? status : 'not_contacted');
-      const finalRemark = existing.remark !== null && existing.remark !== undefined ? existing.remark : (remark || null);
-      const finalFollowUpDate1 = existing.followUpDate1 !== null && existing.followUpDate1 !== undefined ? existing.followUpDate1 : followUpDate1;
-      const finalFollowUpDate2 = existing.followUpDate2 !== null && existing.followUpDate2 !== undefined ? existing.followUpDate2 : followUpDate2;
-
-      // Check if Sheet row has mismatched values and queue corrections to write back to Google Sheet
+      // Check if Sheet row has mismatched CRM values and queue corrections to write back to Google Sheet
+      // STRICT RULE: ONLY remark, followup, status, testdrive, assigned consultant are allowed to be written back to sheets
       const corrections: { col: number; value: string }[] = [];
 
       // 1. Status Mismatch Correction
@@ -310,20 +329,41 @@ export async function performSheetSync() {
         }
       }
 
+      // 5. Test Drive Mismatch Correction
+      if (mapping.testDrive !== undefined && mapping.testDrive >= 0) {
+        const rawSheetTd = (row[mapping.testDrive] || '').toString().trim();
+        const dbTd = (existing.testDrive || '').trim();
+        if (existing.testDrive !== null && existing.testDrive !== undefined && rawSheetTd !== dbTd) {
+          corrections.push({ col: mapping.testDrive, value: dbTd });
+        }
+      }
+
+      // 6. Assigned Consultant Mismatch Correction
+      if (mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) {
+        const rawSheetCons = (row[mapping.assignedConsultant] || '').toString().trim();
+        const dbCons = (existing.assignedConsultant || '').trim();
+        if (existing.assignedConsultant !== null && existing.assignedConsultant !== undefined && rawSheetCons !== dbCons) {
+          corrections.push({ col: mapping.assignedConsultant, value: dbCons });
+        }
+      }
+
       if (corrections.length > 0 && rowNumber) {
         sheetUpdatesToCorrect.push({ rowNumber, updates: corrections });
       }
 
-      // Only queue DB update if metadata (like name, phone, city, branch, adname, platform, sheetRow) changed from sheet
-      if (
+      // Only queue DB update if metadata changed from sheet, preserving DB CRM fields
+      const hasMetadataChanged = (
         existing.name !== name ||
         existing.phone !== phone ||
         existing.city !== city ||
         existing.adname !== adname ||
         existing.branch !== branch ||
         existing.platform !== platform ||
-        existing.sheetRow !== rowNumber
-      ) {
+        existing.sheetRow !== rowNumber ||
+        existing.sheetId !== settings.selectedSpreadsheetId
+      );
+
+      if (hasMetadataChanged) {
         toUpdate.push({
           id: existing.id,
           data: {
@@ -332,10 +372,6 @@ export async function performSheetSync() {
             city,
             adname,
             branch,
-            followUpDate1: finalFollowUpDate1,
-            followUpDate2: finalFollowUpDate2,
-            remark: finalRemark,
-            status: finalStatus,
             platform,
             sheetRow: rowNumber,
             sheetId: settings.selectedSpreadsheetId,
@@ -368,33 +404,27 @@ export async function performSheetSync() {
   }
 
   // 3. Execute Bulk DB Operations
-  // Create New Leads with DB-level duplicate skipping using upsert
-  const chunkSize = 50;
-  for (let i = 0; i < toCreate.length; i += chunkSize) {
-    const chunk = toCreate.slice(i, i + chunkSize);
-    const createPromises = chunk.map(data => 
-      prisma.lead.upsert({
-        where: { fingerprint: data.fingerprint },
-        update: data,
-        create: data
-      }).catch(e => {
-        console.error(`Create/Upsert failed for fingerprint ${data.fingerprint}:`, e);
-      })
-    );
-    await Promise.all(createPromises);
+  // Create New Leads with DB-level duplicate skipping
+  if (toCreate.length > 0) {
+    await prisma.lead.createMany({
+      data: toCreate,
+      skipDuplicates: true,
+    });
   }
 
-  // Update Existing Leads in chunks of 50 concurrent updates
+  // Update Existing Leads only when metadata changed
   for (let i = 0; i < toUpdate.length; i += 50) {
-    const updatePromises = toUpdate.slice(i, i + 50).map(u =>
-      prisma.lead.update({
-        where: { id: u.id },
-        data: u.data
-      }).catch(e => {
-        console.error(`Update failed for id ${u.id}:`, e);
-      })
+    const chunk = toUpdate.slice(i, i + 50);
+    await Promise.all(
+      chunk.map(u =>
+        prisma.lead.update({
+          where: { id: u.id },
+          data: u.data
+        }).catch(e => {
+          console.error(`Update failed for id ${u.id}:`, e);
+        })
+      )
     );
-    await Promise.all(updatePromises);
   }
 
   // 4. Correct Mismatched Google Sheet Rows to Match Authoritative DB Data (Single Bulk API Request)

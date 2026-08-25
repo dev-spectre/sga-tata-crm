@@ -42,15 +42,23 @@ const formatConversionRate = (completedCount: number, totalCount: number) => {
   return { pctStr, ratioStr, fullStr: `${pctStr} ${ratioStr}` };
 };
 
+// Persistent client caches across page navigations
+let cachedPerformanceData: PerformanceStat[] | null = null;
+let cachedConsultantsList: ConsultantRecord[] | null = null;
+let cachedBranchesList: string[] | null = null;
+let cachedMeRole: string | null = null;
+let consultantsCacheTimestamp = 0;
+const CACHE_TTL_CONSULTANTS = 60000;
+
 export default function ConsultantsPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"performance" | "manage">("performance");
-  const [stats, setStats] = useState<PerformanceStat[]>([]);
-  const [consultants, setConsultants] = useState<ConsultantRecord[]>([]);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<PerformanceStat[]>(() => cachedPerformanceData || []);
+  const [consultants, setConsultants] = useState<ConsultantRecord[]>(() => cachedConsultantsList || []);
+  const [branches, setBranches] = useState<string[]>(() => cachedBranchesList || []);
+  const [loading, setLoading] = useState(() => !cachedConsultantsList);
   const [loadingConsultants, setLoadingConsultants] = useState(false);
-  const [userRole, setUserRole] = useState<string>("USER");
+  const [userRole, setUserRole] = useState<string>(() => cachedMeRole || "USER");
   const [accessDenied, setAccessDenied] = useState(false);
 
   // Filters for Performance tab
@@ -102,7 +110,9 @@ export default function ConsultantsPage() {
       const perfRes = await fetch("/api/leads/performance");
       if (perfRes.ok) {
         const perfData = await perfRes.json();
-        setStats(perfData.performance || []);
+        const incoming = perfData.performance || [];
+        cachedPerformanceData = incoming;
+        setStats(incoming);
       } else if (perfRes.status === 403) {
         setAccessDenied(true);
       }
@@ -117,7 +127,9 @@ export default function ConsultantsPage() {
       const res = await fetch("/api/consultants");
       if (res.ok) {
         const data = await res.json();
-        setConsultants(data.consultants || []);
+        const incoming = data.consultants || [];
+        cachedConsultantsList = incoming;
+        setConsultants(incoming);
       }
     } catch (e) {
       console.error("Failed to fetch consultants:", e);
@@ -132,6 +144,7 @@ export default function ConsultantsPage() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.branches)) {
+          cachedBranchesList = data.branches;
           setBranches(data.branches);
         }
       }
@@ -140,12 +153,17 @@ export default function ConsultantsPage() {
     }
   }, []);
 
-  const fetchInitialData = async () => {
+  const fetchInitialData = async (force = false) => {
+    if (!force && cachedConsultantsList && Date.now() - consultantsCacheTimestamp < CACHE_TTL_CONSULTANTS) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const meRes = await fetch("/api/auth/me");
       const meData = await meRes.json();
       if (meData.user) {
+        cachedMeRole = meData.user.role;
         setUserRole(meData.user.role);
         if (meData.user.role !== "ADMIN" && meData.user.role !== "SUPERADMIN") {
           setAccessDenied(true);
@@ -159,6 +177,7 @@ export default function ConsultantsPage() {
         fetchConsultantsList(),
         fetchBranches(),
       ]);
+      consultantsCacheTimestamp = Date.now();
     } catch (e) {
       console.error("Initialization error:", e);
     } finally {

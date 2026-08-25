@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
     const uploader = searchParams.get('uploader');
     const uploadedById = searchParams.get('uploadedById');
     const source = searchParams.get('source');
+    const hasFollowUp = searchParams.get('hasFollowUp') === 'true' || searchParams.get('hasFollowUp') === '1' || searchParams.get('onlyFollowUps') === 'true';
 
     // Build filter matching active user view
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,6 +51,18 @@ export async function GET(request: NextRequest) {
       if (endDate) {
         where.createdAt.lte = new Date(`${endDate}T23:59:59.999+05:30`);
       }
+    }
+
+    if (hasFollowUp) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { followUpDate1: { not: null } },
+            { followUpDate2: { not: null } },
+          ]
+        }
+      ];
     }
 
     if (branch) {

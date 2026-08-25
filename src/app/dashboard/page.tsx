@@ -128,10 +128,26 @@ const getFirstDayOfMonthISTString = () => {
   return `${y}-${m}-01`;
 };
 
+const PAGE_SIZE = 20;
+
+// Persistent in-memory client caches (persists across page navigations in the same session)
+const globalDashboardPageCache: Record<string, { [page: number]: Lead[]; total?: number; stats?: Stats; timestamp?: number }> = {};
+let cachedBranchesList: string[] | null = null;
+let cachedConsultantsList: ConsultantItem[] | null = null;
+let cachedPerformanceStats: PerformanceStat[] | null = null;
+let cachedUsersList: { id: number; username: string; role: string }[] | null = null;
+let cachedMeUser: any = null;
+const CACHE_TTL_METADATA = 120000; // 2 minutes TTL
+let branchesFetchedAt = 0;
+let consultantsFetchedAt = 0;
+let performanceFetchedAt = 0;
+let usersFetchedAt = 0;
+let meUserFetchedAt = 0;
+
 export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, live: 0, lost: 0 });
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 });
   const [mounted, setMounted] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -153,14 +169,14 @@ export default function DashboardPage() {
   const [secondaryField, setSecondaryField] = useState("");
   const [secondaryOrder, setSecondaryOrder] = useState<"asc" | "desc">("asc");
 
-  const [username, setUsername] = useState<string>("");
-  const [userRole, setUserRole] = useState<string>("USER");
-  const [userAssignedBranch, setUserAssignedBranch] = useState<string | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [username, setUsername] = useState<string>(() => cachedMeUser?.username || "");
+  const [userRole, setUserRole] = useState<string>(() => cachedMeUser?.role || "USER");
+  const [userAssignedBranch, setUserAssignedBranch] = useState<string | null>(() => cachedMeUser?.assignedBranch ?? null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => Boolean(cachedMeUser?.isSuperAdmin || cachedMeUser?.role === "SUPERADMIN" || cachedMeUser?.username === "sudo"));
 
-  const [performanceStats, setPerformanceStats] = useState<PerformanceStat[]>([]);
-  const [consultantsList, setConsultantsList] = useState<ConsultantItem[]>([]);
-  const [usersList, setUsersList] = useState<{ id: number; username: string; role: string }[]>([]);
+  const [performanceStats, setPerformanceStats] = useState<PerformanceStat[]>(() => cachedPerformanceStats || []);
+  const [consultantsList, setConsultantsList] = useState<ConsultantItem[]>(() => cachedConsultantsList || []);
+  const [usersList, setUsersList] = useState<{ id: number; username: string; role: string }[]>(() => cachedUsersList || []);
 
   // Debounce search input by 350ms to avoid querying on every keystroke
   useEffect(() => {
@@ -201,11 +217,88 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const fetchUsersList = useCallback(async () => {
+  const [apiBranches, setApiBranches] = useState<string[]>(() => cachedBranchesList || []);
+
+  const fetchBranchesList = useCallback(async (force = false) => {
+    if (!force && cachedBranchesList && Date.now() - branchesFetchedAt < CACHE_TTL_METADATA) {
+      setApiBranches(cachedBranchesList);
+      return;
+    }
+    try {
+      const res = await fetch("/api/branches");
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.branches)) {
+        cachedBranchesList = data.branches;
+        branchesFetchedAt = Date.now();
+        setApiBranches(data.branches);
+      }
+    } catch {
+      // fallback
+    }
+  }, []);
+
+  const fetchConsultantsList = useCallback(async (force = false) => {
+    if (!force && cachedConsultantsList && Date.now() - consultantsFetchedAt < CACHE_TTL_METADATA) {
+      setConsultantsList(cachedConsultantsList);
+      return;
+    }
+    try {
+      const res = await fetch("/api/consultants");
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.consultants)) {
+        cachedConsultantsList = data.consultants;
+        consultantsFetchedAt = Date.now();
+        setConsultantsList(data.consultants);
+      }
+    } catch {
+      // fallback
+    }
+  }, []);
+
+  const fetchPerformanceStats = useCallback(async (force = false) => {
+    if (!force && cachedPerformanceStats && Date.now() - performanceFetchedAt < CACHE_TTL_METADATA) {
+      setPerformanceStats(cachedPerformanceStats);
+      return;
+    }
+    try {
+      const res = await fetch("/api/leads/performance");
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.performance)) {
+        cachedPerformanceStats = data.performance;
+        performanceFetchedAt = Date.now();
+        setPerformanceStats(data.performance);
+      }
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  const updateBranchWindow = useCallback((incoming: { branch?: string }[]) => {
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    setApiBranches(prev => {
+      const existing = new Set(prev.map(b => b.toLowerCase().trim()));
+      const toAdd: string[] = [];
+      for (const item of incoming) {
+        if (item.branch && item.branch.trim() && !existing.has(item.branch.toLowerCase().trim())) {
+          existing.add(item.branch.toLowerCase().trim());
+          toAdd.push(item.branch.trim());
+        }
+      }
+      return toAdd.length > 0 ? [...prev, ...toAdd].sort((a, b) => a.localeCompare(b)) : prev;
+    });
+  }, []);
+
+  const fetchUsersList = useCallback(async (force = false) => {
+    if (!force && cachedUsersList && Date.now() - usersFetchedAt < CACHE_TTL_METADATA) {
+      setUsersList(cachedUsersList);
+      return;
+    }
     try {
       const res = await fetch("/api/users");
       const data = await res.json();
       if (res.ok && Array.isArray(data.users)) {
+        cachedUsersList = data.users;
+        usersFetchedAt = Date.now();
         setUsersList(data.users);
       }
     } catch {
@@ -217,51 +310,59 @@ export default function DashboardPage() {
     fetchUsersList();
     fetchBranchesList();
     fetchConsultantsList();
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.user) {
-          const userObj = data.user;
-          if (userObj.username) setUsername(userObj.username);
-          if (userObj.role) setUserRole(userObj.role);
-          if (userObj.assignedBranch !== undefined) setUserAssignedBranch(userObj.assignedBranch);
-          const isSuper = Boolean(userObj.isSuperAdmin || userObj.role === "SUPERADMIN" || userObj.username === "sudo");
-          setIsSuperAdmin(isSuper);
-          if (userObj.role === "ADMIN" || userObj.role === "SUPERADMIN" || isSuper || userObj.allowExternalUpload) {
-            setAllowExternalUpload(true);
-          }
-          restoreUserFilters(userObj.username);
+    fetchPerformanceStats();
 
-        } else {
+    const applyUser = (userObj: any) => {
+      if (userObj.username) setUsername(userObj.username);
+      if (userObj.role) setUserRole(userObj.role);
+      if (userObj.assignedBranch !== undefined) setUserAssignedBranch(userObj.assignedBranch);
+      const isSuper = Boolean(userObj.isSuperAdmin || userObj.role === "SUPERADMIN" || userObj.username === "sudo");
+      setIsSuperAdmin(isSuper);
+      if (userObj.role === "ADMIN" || userObj.role === "SUPERADMIN" || isSuper || userObj.allowExternalUpload) {
+        setAllowExternalUpload(true);
+      }
+      restoreUserFilters(userObj.username);
+    };
+
+    if (cachedMeUser && Date.now() - meUserFetchedAt < CACHE_TTL_METADATA) {
+      applyUser(cachedMeUser);
+    } else {
+      fetch("/api/auth/me")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.user) {
+            cachedMeUser = data.user;
+            meUserFetchedAt = Date.now();
+            applyUser(data.user);
+          } else {
+            restoreUserFilters("");
+          }
+        })
+        .catch(() => {
           restoreUserFilters("");
+        });
+    }
+
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const consultantParam = urlParams.get("consultant");
+      const testDriveParam = urlParams.get("testDrive");
+      const branchParam = urlParams.get("branch");
+      const statusParam = urlParams.get("status");
+      const uploaderParam = urlParams.get("uploader");
+
+      if (consultantParam !== null) {
+        setConsultantFilter(consultantParam);
+        if (testDriveParam === null) {
+          setTestDriveFilter("");
         }
-
-
-        if (typeof window !== "undefined") {
-          const urlParams = new URLSearchParams(window.location.search);
-          const consultantParam = urlParams.get("consultant");
-          const testDriveParam = urlParams.get("testDrive");
-          const branchParam = urlParams.get("branch");
-          const statusParam = urlParams.get("status");
-          const uploaderParam = urlParams.get("uploader");
-
-          if (consultantParam !== null) {
-            setConsultantFilter(consultantParam);
-            if (testDriveParam === null) {
-              setTestDriveFilter("");
-            }
-          }
-          if (testDriveParam !== null) setTestDriveFilter(testDriveParam);
-          if (branchParam !== null) setBranchFilter(branchParam);
-          if (statusParam !== null) setStatusFilter(statusParam);
-          if (uploaderParam !== null) setUploaderFilter(uploaderParam);
-        }
-      })
-      .catch(() => {
-        restoreUserFilters("");
-      });
-
-  }, [restoreUserFilters, fetchUsersList]);
+      }
+      if (testDriveParam !== null) setTestDriveFilter(testDriveParam);
+      if (branchParam !== null) setBranchFilter(branchParam);
+      if (statusParam !== null) setStatusFilter(statusParam);
+      if (uploaderParam !== null) setUploaderFilter(uploaderParam);
+    }
+  }, [restoreUserFilters, fetchUsersList, fetchBranchesList, fetchConsultantsList, fetchPerformanceStats]);
 
   // Persist filter changes to localStorage per authenticated user
   useEffect(() => {
@@ -348,7 +449,6 @@ export default function DashboardPage() {
   const updatingCountRef = useRef(0);
   const activeFetchIdRef = useRef(0);
   const isFetchingRef = useRef(false);
-  const prefetchCache = useRef<Record<string, any>>({});
   const lastSyncTimestampRef = useRef<string | null>(null);
 
   const startUpdating = () => {
@@ -378,61 +478,42 @@ export default function DashboardPage() {
     }
   };
 
-  const [apiBranches, setApiBranches] = useState<string[]>([]);
-
-  const fetchBranchesList = useCallback(async () => {
-    try {
-      const res = await fetch("/api/branches");
-      const data = await res.json();
-      if (res.ok && Array.isArray(data.branches)) {
-        setApiBranches(data.branches);
-      }
-    } catch {
-      // fallback
-    }
-  }, []);
-
-  const fetchConsultantsList = useCallback(async () => {
-    try {
-      const res = await fetch("/api/consultants");
-      const data = await res.json();
-      if (res.ok && Array.isArray(data.consultants)) {
-        setConsultantsList(data.consultants);
-      }
-    } catch {
-      // fallback
-    }
-  }, []);
-
-  const updateBranchWindow = useCallback((incoming: { branch?: string }[]) => {
-    if (!Array.isArray(incoming) || incoming.length === 0) return;
-    setApiBranches(prev => {
-      const existing = new Set(prev.map(b => b.toLowerCase().trim()));
-      const toAdd: string[] = [];
-      for (const item of incoming) {
-        if (item.branch && item.branch.trim() && !existing.has(item.branch.toLowerCase().trim())) {
-          existing.add(item.branch.toLowerCase().trim());
-          toAdd.push(item.branch.trim());
+  const patchLeadInCache = useCallback((updated: Partial<Lead> & { id: number }) => {
+    setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l));
+    for (const fKey of Object.keys(globalDashboardPageCache)) {
+      const fObj = globalDashboardPageCache[fKey];
+      if (!fObj) continue;
+      for (const pKey of Object.keys(fObj)) {
+        const idx = Number(pKey);
+        if (!isNaN(idx) && Array.isArray(fObj[idx])) {
+          fObj[idx] = fObj[idx].map(l => l.id === updated.id ? { ...l, ...updated } : l);
         }
       }
-      return toAdd.length > 0 ? [...prev, ...toAdd].sort((a, b) => a.localeCompare(b)) : prev;
+    }
+  }, []);
+
+  const removeLeadFromCache = useCallback((deletedId: number) => {
+    setLeads(prev => prev.filter(l => l.id !== deletedId));
+    for (const fKey of Object.keys(globalDashboardPageCache)) {
+      const fObj = globalDashboardPageCache[fKey];
+      if (!fObj) continue;
+      for (const pKey of Object.keys(fObj)) {
+        const idx = Number(pKey);
+        if (!isNaN(idx) && Array.isArray(fObj[idx])) {
+          fObj[idx] = fObj[idx].filter(l => l.id !== deletedId);
+        }
+      }
+      if (fObj.total && fObj.total > 0) {
+        fObj.total -= 1;
+      }
+    }
+    setPagination(p => {
+      const newTotal = Math.max(0, p.total - 1);
+      return { ...p, total: newTotal, totalPages: Math.ceil(newTotal / PAGE_SIZE) };
     });
   }, []);
 
-  const fetchPerformanceStats = useCallback(async () => {
-    if (userRole !== "ADMIN") return;
-    try {
-      const res = await fetch("/api/leads/performance");
-      const data = await res.json();
-      if (res.ok && data.performance) {
-        setPerformanceStats(data.performance);
-      }
-    } catch {
-      // silently fail
-    }
-  }, [userRole]);
-
-  const fetchLeads = useCallback(async (force = false, isBackgroundPoll = false) => {
+  const fetchLeads = useCallback(async (force = false) => {
     if (updatingCountRef.current > 0 && !force) {
       return; // Stop polling while data updates are in progress
     }
@@ -441,8 +522,6 @@ export default function DashboardPage() {
 
     try {
       const params = new URLSearchParams();
-      params.set("page", pagination.page.toString());
-      params.set("limit", "20");
       params.set("primaryOrder", primaryOrder);
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
@@ -460,20 +539,23 @@ export default function DashboardPage() {
       }
       if (platformFilter) params.set("platform", platformFilter);
       if (startDate) params.set("startDate", startDate);
-
       if (endDate) params.set("endDate", endDate);
 
-      const cacheKey = params.toString();
-      const cachedData = prefetchCache.current[cacheKey];
+      const filterKey = params.toString();
+      const currentPage = pagination.page;
 
-      if (cachedData && !force) {
+      const cachedFilter = globalDashboardPageCache[filterKey];
+      const cachedPage = cachedFilter?.[currentPage];
+
+      if (cachedPage && !force) {
         setAccessRestricted(false);
-        setLeads(cachedData.leads);
-        if (cachedData.stats) setStats(cachedData.stats);
-        if (cachedData.pagination) {
+        setLeads(cachedPage);
+        if (cachedFilter.stats) setStats(cachedFilter.stats);
+        if (cachedFilter.total !== undefined) {
+          const totalPages = Math.ceil(cachedFilter.total / PAGE_SIZE);
           setPagination(prev => {
-            if (prev.total !== cachedData.pagination.total || prev.totalPages !== cachedData.pagination.totalPages) {
-              return { ...prev, total: cachedData.pagination.total, totalPages: cachedData.pagination.totalPages };
+            if (prev.total !== cachedFilter.total || prev.totalPages !== totalPages) {
+              return { ...prev, total: cachedFilter.total!, totalPages };
             }
             return prev;
           });
@@ -483,12 +565,18 @@ export default function DashboardPage() {
       }
 
       isFetchingRef.current = true;
-      const res = await fetch(`/api/leads?${cacheKey}`);
-      const data = await res.json();
 
-      if (res.ok) {
-        prefetchCache.current[cacheKey] = data;
+      const requestParams = new URLSearchParams(filterKey);
+      requestParams.set("page", currentPage.toString());
+      requestParams.set("limit", PAGE_SIZE.toString());
+
+      const hasStatsAlready = Boolean(cachedFilter?.stats);
+      if (hasStatsAlready && currentPage > 1) {
+        requestParams.set("skipStats", "true");
       }
+
+      const res = await fetch(`/api/leads?${requestParams.toString()}`);
+      const data = await res.json();
 
       if (activeFetchIdRef.current !== fetchId) {
         return; // Ignore stale response
@@ -499,16 +587,44 @@ export default function DashboardPage() {
         setLeads([]);
       } else if (res.ok) {
         setAccessRestricted(false);
-        setLeads(data.leads);
-        setStats(data.stats);
-        if (Array.isArray(data.leads)) {
-          updateBranchWindow(data.leads);
+
+        if (!globalDashboardPageCache[filterKey]) {
+          globalDashboardPageCache[filterKey] = { timestamp: Date.now() };
+        }
+
+        const incomingLeads = data.leads || [];
+        globalDashboardPageCache[filterKey][currentPage] = incomingLeads;
+        globalDashboardPageCache[filterKey].timestamp = Date.now();
+
+        if (data.stats) {
+          globalDashboardPageCache[filterKey].stats = data.stats;
+          setStats(data.stats);
+        }
+
+        if (data.pagination && data.pagination.total !== undefined && !hasStatsAlready) {
+          globalDashboardPageCache[filterKey].total = data.pagination.total;
+        }
+
+        const currentTotal = globalDashboardPageCache[filterKey].total ?? (data.pagination?.total ?? 0);
+        const totalPages = Math.ceil(currentTotal / PAGE_SIZE);
+
+        setPagination(prev => {
+          if (prev.total !== currentTotal || prev.totalPages !== totalPages) {
+            return { ...prev, total: currentTotal, totalPages };
+          }
+          return prev;
+        });
+
+        setLeads(incomingLeads);
+
+        if (Array.isArray(incomingLeads)) {
+          updateBranchWindow(incomingLeads);
         }
         if (data.maxUpdatedAt) {
           lastSyncTimestampRef.current = data.maxUpdatedAt;
-        } else if (Array.isArray(data.leads) && data.leads.length > 0) {
+        } else if (Array.isArray(incomingLeads) && incomingLeads.length > 0) {
           let maxT = '';
-          for (const l of data.leads) {
+          for (const l of incomingLeads) {
             const t = l.updatedAt || l.createdAt;
             if (t && t > maxT) maxT = t;
           }
@@ -516,41 +632,11 @@ export default function DashboardPage() {
         }
         if (data.userRole) {
           setUserRole(data.userRole);
-          if (data.userRole === "ADMIN" || data.userRole === "SUPERADMIN") fetchPerformanceStats();
         }
 
         if (data.assignedBranch !== undefined) setUserAssignedBranch(data.assignedBranch);
         if (data.allowExternalUpload !== undefined) {
           setAllowExternalUpload(Boolean(data.allowExternalUpload || data.userRole === "ADMIN" || data.userRole === "SUPERADMIN"));
-        }
-
-
-        // Only update pagination if it actually changes total pages/records
-        // This prevents the page jumping from 2 to 1 back to 2 during polling
-        setPagination(prev => {
-          if (prev.total !== data.pagination.total || prev.totalPages !== data.pagination.totalPages) {
-            return { ...prev, total: data.pagination.total, totalPages: data.pagination.totalPages };
-          }
-          return prev;
-        });
-
-        // Prefetch adjacent pages
-        if (!isBackgroundPoll) {
-          const prefetchParams = new URLSearchParams(cacheKey);
-          const currentPage = pagination.page;
-
-          const prefetchPage = (p: number) => {
-            prefetchParams.set("page", p.toString());
-            const pKey = prefetchParams.toString();
-            if (!prefetchCache.current[pKey]) {
-              fetch(`/api/leads?${pKey}`).then(r => r.json()).then(d => {
-                if (!d.error) prefetchCache.current[pKey] = d;
-              }).catch(() => { });
-            }
-          };
-
-          prefetchPage(currentPage + 1);
-          if (currentPage > 1) prefetchPage(currentPage - 1);
         }
       }
     } catch {
@@ -652,21 +738,14 @@ export default function DashboardPage() {
         if (Array.isArray(data.changedLeads) && data.changedLeads.length > 0) {
           updateBranchWindow(data.changedLeads);
 
-          const changedMap = new Map<number, Lead>(data.changedLeads.map((l: Lead) => [l.id, l]));
+          for (const cl of data.changedLeads) {
+            patchLeadInCache(cl);
+          }
 
+          // If on page 1 and there are TRULY NEW incoming leads (created since previous sync), prepend them in-place
+          const prevSyncTime = prevSyncTimeStr ? new Date(prevSyncTimeStr).getTime() - 5000 : 0;
           setLeads(prevLeads => {
             const existingIds = new Set(prevLeads.map(l => l.id));
-
-            // Update any existing leads on current page in-place
-            let updated = prevLeads.map(l => {
-              if (changedMap.has(l.id)) {
-                return { ...l, ...changedMap.get(l.id)! };
-              }
-              return l;
-            });
-
-            // If on page 1 and there are TRULY NEW incoming leads (created since previous sync), prepend them in-place
-            const prevSyncTime = prevSyncTimeStr ? new Date(prevSyncTimeStr).getTime() - 5000 : 0;
             const newlyCreatedLeads = data.changedLeads.filter((l: Lead) => {
               if (existingIds.has(l.id)) return false;
               if (!l.createdAt) return false;
@@ -676,10 +755,10 @@ export default function DashboardPage() {
 
             if (newlyCreatedLeads.length > 0 && filterStateRef.current.page === 1 && primaryOrder === 'desc') {
               newlyCreatedLeads.sort((a: Lead, b: Lead) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-              updated = [...newlyCreatedLeads, ...updated].slice(0, filterStateRef.current.limit || 20);
+              return [...newlyCreatedLeads, ...prevLeads].slice(0, filterStateRef.current.limit || PAGE_SIZE);
             }
 
-            return updated;
+            return prevLeads;
           });
 
           // Update pagination total if count changed
@@ -711,14 +790,17 @@ export default function DashboardPage() {
       }
       clearInterval(autoRefreshInterval);
     };
-  }, [fetchLeads, updateBranchWindow]);
+  }, [fetchLeads, updateBranchWindow, patchLeadInCache, primaryOrder]);
 
 
   const fetchAllFilteredLeads = async () => {
     try {
       const params = new URLSearchParams();
       params.set("page", "1");
-      params.set("limit", "100000");
+      params.set("limit", "10000");
+      params.set("export", "true");
+      params.set("skipStats", "true");
+      params.set("skipActivities", "true");
       params.set("primaryOrder", primaryOrder);
       params.set("secondaryField", secondaryField);
       params.set("secondaryOrder", secondaryOrder);
@@ -727,7 +809,6 @@ export default function DashboardPage() {
       if (consultantFilter) params.set("consultant", consultantFilter);
       if (testDriveFilter) params.set("testDrive", testDriveFilter);
       if (startDate) params.set("startDate", startDate);
-
       if (endDate) params.set("endDate", endDate);
 
       const res = await fetch(`/api/leads?${params}`);
@@ -1049,7 +1130,7 @@ export default function DashboardPage() {
     setSyncing(true);
     startUpdating();
     activeFetchIdRef.current++; // Invalidate in-flight background fetches
-    prefetchCache.current = {}; // Clear stale prefetched pages
+    for (const k of Object.keys(globalDashboardPageCache)) delete globalDashboardPageCache[k]; // Clear stale prefetched pages on manual full sync
     try {
       const res = await fetch("/api/sheets/sync", { method: "POST" });
       const data = await res.json();
@@ -1075,9 +1156,8 @@ export default function DashboardPage() {
     const prevLeads = [...leads];
     startUpdating();
     activeFetchIdRef.current++;
-    prefetchCache.current = {};
 
-    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, [field]: dateStr || null } : l));
+    patchLeadInCache({ id: lead.id, [field]: dateStr || null });
 
     try {
       const res = await fetch(`/api/leads/${lead.id}`, {
@@ -1089,7 +1169,7 @@ export default function DashboardPage() {
       if (res.ok) {
         showToast("Follow-up date updated");
         if (data.lead) {
-          setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...data.lead } : l));
+          patchLeadInCache(data.lead);
         }
       } else {
         showToast(data.error || data.details || "Failed to update date", "error");
@@ -1116,11 +1196,10 @@ export default function DashboardPage() {
 
     startUpdating(); // PAUSE polling while update request is processing
     activeFetchIdRef.current++; // Invalidate any in-flight requests so they don't overwrite this optimistic update
-    prefetchCache.current = {}; // Clear stale cache
 
     // 1. Optimistically update leads list in table immediately
     const optimisticHandledBy = (normNew === 'not_contacted') ? null : (lead.handledBy || username || null);
-    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, status: newStatus, handledBy: optimisticHandledBy } : l));
+    patchLeadInCache({ id: lead.id, status: newStatus, handledBy: optimisticHandledBy });
 
     // 2. Optimistically update stats counters immediately!
     setStats(prev => {
@@ -1148,7 +1227,7 @@ export default function DashboardPage() {
       if (res.ok) {
         showToast(`Status updated to ${formatStatusLabel(newStatus)}`);
         if (data.lead) {
-          setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...data.lead } : l));
+          patchLeadInCache(data.lead);
         }
       } else {
         showToast(data.error || data.details || "Failed to update status", "error");
@@ -1176,15 +1255,14 @@ export default function DashboardPage() {
 
     startUpdating(); // PAUSE polling while adding remark
     activeFetchIdRef.current++; // Invalidate in-flight requests
-    prefetchCache.current = {};
 
     // Optimistically update table row and stats counters
-    setLeads(prev => prev.map(l => l.id === remarkModal.id ? {
-      ...l,
+    patchLeadInCache({
+      id: remarkModal.id,
       remark: remarkText.trim(),
-      status: isPending ? "pending" : l.status,
-      handledBy: l.handledBy || username || null,
-    } : l));
+      status: isPending ? "pending" : remarkModal.status,
+      handledBy: remarkModal.handledBy || username || null,
+    });
 
     if (isPending) {
       setStats(prev => {
@@ -1207,7 +1285,7 @@ export default function DashboardPage() {
         setRemarkModal(null);
         setRemarkText("");
         if (data.lead) {
-          setLeads(prev => prev.map(l => l.id === remarkModal.id ? { ...l, ...data.lead } : l));
+          patchLeadInCache(data.lead);
         }
       } else {
         showToast(data.error || data.details || "Failed to add remark", "error");
@@ -1230,9 +1308,8 @@ export default function DashboardPage() {
     const prevLeads = [...leads];
     startUpdating();
     activeFetchIdRef.current++;
-    prefetchCache.current = {};
 
-    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, assignedConsultant: value } : l));
+    patchLeadInCache({ id: lead.id, assignedConsultant: value });
 
     try {
       const res = await fetch(`/api/leads/${lead.id}`, {
@@ -1245,7 +1322,7 @@ export default function DashboardPage() {
         showToast(data.error || data.details || "Failed to update consultant", "error");
         setLeads(prevLeads.map(l => (l.id === lead.id && data.handledBy) ? { ...l, handledBy: data.handledBy } : l));
       } else if (data.lead) {
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...data.lead } : l));
+        patchLeadInCache(data.lead);
       }
     } catch (err: any) {
       showToast(`Failed to update consultant: ${err.message || 'Network error'}`, "error");
@@ -1259,9 +1336,8 @@ export default function DashboardPage() {
     const prevLeads = [...leads];
     startUpdating();
     activeFetchIdRef.current++;
-    prefetchCache.current = {};
 
-    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, testDrive: value } : l));
+    patchLeadInCache({ id: lead.id, testDrive: value });
 
     try {
       const res = await fetch(`/api/leads/${lead.id}`, {
@@ -1274,7 +1350,7 @@ export default function DashboardPage() {
         showToast(data.error || data.details || "Failed to update test drive", "error");
         setLeads(prevLeads.map(l => (l.id === lead.id && data.handledBy) ? { ...l, handledBy: data.handledBy } : l));
       } else if (data.lead) {
-        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...data.lead } : l));
+        patchLeadInCache(data.lead);
       }
     } catch (err: any) {
       showToast(`Failed to update test drive: ${err.message || 'Network error'}`, "error");
@@ -1293,10 +1369,9 @@ export default function DashboardPage() {
 
     startUpdating(); // PAUSE polling while deleting lead
     activeFetchIdRef.current++; // Invalidate in-flight requests
-    prefetchCache.current = {};
 
-    // Optimistically remove lead from state
-    setLeads(prev => prev.filter(l => l.id !== targetLead.id));
+    // Optimistically remove lead from state and cache
+    removeLeadFromCache(targetLead.id);
     const targetStatus = (targetLead.status === 'created' ? 'not_contacted' : targetLead.status === 'closed_successful' ? 'live' : targetLead.status === 'closed_unsuccessful' ? 'lost' : targetLead.status) as 'not_contacted' | 'pending' | 'live' | 'lost';
 
     setStats(prev => {

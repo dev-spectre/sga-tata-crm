@@ -94,6 +94,12 @@ export async function PATCH(
               value: followUpDate2 ? new Date(followUpDate2).toISOString().split('T')[0] : '' 
             });
           }
+          if (assignedConsultant !== undefined && mapping.assignedConsultant !== undefined) {
+            updates.push({ col: mapping.assignedConsultant, value: assignedConsultant || '' });
+          }
+          if (testDrive !== undefined && mapping.testDrive !== undefined) {
+            updates.push({ col: mapping.testDrive, value: testDrive || '' });
+          }
 
           if (updates.length > 0) {
             await findAndWriteToSheetRow(spreadsheetId, sheetName, lead, updates);

@@ -3,15 +3,17 @@ import { getSheetData, updateSheetRow } from './google';
 export interface ColumnMapping {
   name: number;
   phone: number;
-  city: number;
-  adname: number;
-  branch: number;
-  followUpDate1: number;
-  followUpDate2: number;
-  createdAt: number;
-  remark: number;
-  status: number;
-  platform: number;
+  city?: number;
+  adname?: number;
+  branch?: number;
+  followUpDate1?: number;
+  followUpDate2?: number;
+  createdAt?: number;
+  remark?: number;
+  status?: number;
+  platform?: number;
+  testDrive?: number;
+  assignedConsultant?: number;
 }
 
 export async function computeIntelligentMapping(
@@ -49,6 +51,8 @@ export async function computeIntelligentMapping(
     createdAt: [/^created\s?_?at$/i, /^date$/i, /^timestamp$/i, /date|time|created/i],
     remark: [/^remark$/i, /^notes?$/i, /^comments?$/i, /remark|notes|comments/i],
     status: [/^status$/i, /^state$/i, /status|state/i],
+    testDrive: [/^test\s?_?drive$/i, /^td$/i, /test\s?drive|td/i],
+    assignedConsultant: [/^assigned\s?_?consultant$/i, /^consultant$/i, /^sales\s?_?consultant$/i, /^sc$/i, /consultant|sales\s?person|advisor/i],
   };
 
   // Phase 1: Header Matching with Priority
@@ -56,9 +60,6 @@ export async function computeIntelligentMapping(
     const key = field as keyof ColumnMapping;
     for (const regex of regexes) {
       const matchIndex = headers.findIndex((h: string) => regex.test(h));
-      // Avoid matching "ad_name" or "campaign_name" with the generic /name/i fallback if we can help it, 
-      // but since it's the last in the array, it will only be used if nothing else matches.
-      // However, explicitly reject 'ad_name' or 'campaign_name' for the 'name' field
       if (matchIndex !== -1) {
         if (key === 'name' && /ad_name|campaign_name|ad name|campaign name/i.test(headers[matchIndex])) {
           continue; // skip this match and keep trying
@@ -131,7 +132,7 @@ export async function computeIntelligentMapping(
     }
   }
 
-  // Phase 3: Fallbacks and free column assignment for remark/status
+  // Phase 3: Only assign free columns for CRM-managed columns (remark, status) if completely unmapped
   const missingHeaders: { col: number; value: string }[] = [];
 
   const assignFreeColumn = (key: keyof ColumnMapping, headerLabel: string) => {
@@ -144,16 +145,9 @@ export async function computeIntelligentMapping(
 
   if (mapping.name === undefined) mapping.name = 0;
   if (mapping.phone === undefined) mapping.phone = 1;
-  if (mapping.city === undefined) assignFreeColumn('city', 'City');
-  if (mapping.adname === undefined) assignFreeColumn('adname', 'Ad Name');
-  if (mapping.branch === undefined) assignFreeColumn('branch', 'Branch');
-  if (mapping.platform === undefined) assignFreeColumn('platform', 'Platform');
-  if (mapping.followUpDate1 === undefined) assignFreeColumn('followUpDate1', 'Follow Up Date 1');
-  if (mapping.followUpDate2 === undefined) assignFreeColumn('followUpDate2', 'Follow Up Date 2');
-  if (mapping.createdAt === undefined) assignFreeColumn('createdAt', 'Created At');
   
-  assignFreeColumn('remark', 'Remark');
-  assignFreeColumn('status', 'Status');
+  if (mapping.remark === undefined) assignFreeColumn('remark', 'Remark');
+  if (mapping.status === undefined) assignFreeColumn('status', 'Status');
 
   // Write new headers back to sheet if we allocated free columns
   if (missingHeaders.length > 0) {
