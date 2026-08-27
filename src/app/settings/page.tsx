@@ -45,6 +45,7 @@ function SettingsContent() {
   const searchParams = useSearchParams();
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [isGoogleLinked, setIsGoogleLinked] = useState(false);
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
   const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [spreadsheets, setSpreadsheets] = useState<Spreadsheet[]>([]);
@@ -343,6 +344,7 @@ function onFormSubmit(e) {
       if (res.ok) {
         setSettings(data.settings);
         setIsGoogleLinked(data.isGoogleLinked);
+        setIsSessionExpired(Boolean(data.isSessionExpired));
         setGoogleAccountEmail(data.googleAccountEmail || null);
         setInterval_(data.settings.notificationInterval || 15);
         setBgNotificationsEnabled(data.settings.backgroundNotificationsEnabled ?? true);
@@ -604,14 +606,25 @@ function onFormSubmit(e) {
         <div className="settings-row">
           <div>
             <label style={{ display: "block", fontWeight: 600 }}>Connection Status</label>
-            <span style={{ fontSize: 13, color: isGoogleLinked ? "#10b981" : "var(--text-muted)" }}>
-              {isGoogleLinked
+            <span style={{ fontSize: 13, fontWeight: isSessionExpired ? 600 : 400, color: isSessionExpired ? "#ef4444" : isGoogleLinked ? "#10b981" : "var(--text-muted)" }}>
+              {isSessionExpired
+                ? `🔴 Session Expired ${googleAccountEmail ? `(${googleAccountEmail})` : ""} — Please Reconnect`
+                : isGoogleLinked
                 ? `🟢 Connected ${googleAccountEmail ? `(${googleAccountEmail})` : ""}`
                 : "⚪ Not connected"}
             </span>
+            {isSessionExpired && (
+              <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4, marginBottom: 0 }}>
+                Google authorization expired or was revoked. Please reconnect below to resume syncing.
+              </p>
+            )}
           </div>
           <div>
-            {isGoogleLinked ? (
+            {isSessionExpired ? (
+              <a href="/api/auth/google" className={`btn btn-primary ${!isAdmin ? "disabled" : ""}`} style={{ background: "#ef4444", borderColor: "#ef4444" }}>
+                ⚠️ Reconnect Google Account
+              </a>
+            ) : isGoogleLinked ? (
               <a href="/api/auth/google" className={`btn btn-secondary ${!isAdmin ? "disabled" : ""}`}>
                 Reconnect Google Account
               </a>

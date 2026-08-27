@@ -30,6 +30,7 @@ export async function GET() {
         lastSyncAt: null,
       },
       isGoogleLinked: !!settings?.googleAccessToken,
+      isSessionExpired: Boolean(!settings?.googleAccessToken && !settings?.googleRefreshToken && googleAccountEmail),
       googleAccountEmail,
       hasSheetSelected: !!settings?.selectedSpreadsheetId && !!settings?.selectedSheetName,
     });

@@ -87,48 +87,144 @@ export async function handleCallback(code: string) {
   return tokens;
 }
 
-export async function getAuthenticatedClient() {
+export class GoogleSessionExpiredError extends Error {
+  isSessionExpired: boolean;
+  constructor(message: string = 'Google session expired (invalid grant). Please reconnect your Google account in Settings.') {
+    super(message);
+    this.name = 'GoogleSessionExpiredError';
+    this.isSessionExpired = true;
+  }
+}
+
+let activeOAuthClient: InstanceType<typeof google.auth.OAuth2> | null = null;
+
+export async function refreshGoogleTokens(): Promise<string> {
   const settings = await getCachedSettings();
 
-  if (!settings?.googleAccessToken) {
-    throw new Error('Google account not linked. Please connect in Settings.');
+  if (!settings?.googleRefreshToken) {
+    throw new GoogleSessionExpiredError('No Google refresh token found. Please connect your Google account in Settings.');
   }
 
   const oauth2Client = getOAuth2Client();
   oauth2Client.setCredentials({
-    access_token: settings.googleAccessToken,
-    refresh_token: settings.googleRefreshToken || undefined,
-    expiry_date: settings.googleTokenExpiry ? settings.googleTokenExpiry.getTime() : undefined,
+    access_token: settings.googleAccessToken || undefined,
+    refresh_token: settings.googleRefreshToken,
   });
 
-  // Check if token needs refresh
-  if (settings.googleTokenExpiry && new Date() >= settings.googleTokenExpiry) {
-    if (!settings.googleRefreshToken) {
-      console.warn('Access token expired but no refresh token available');
-      return oauth2Client;
+  try {
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    let expiryDate: Date | null = null;
+    if (credentials.expiry_date && !isNaN(Number(credentials.expiry_date))) {
+      expiryDate = new Date(Number(credentials.expiry_date));
+    } else {
+      expiryDate = new Date(Date.now() + 3500 * 1000);
     }
-    try {
-      const { credentials } = await oauth2Client.refreshAccessToken();
-      let expiryDate: Date | null = settings.googleTokenExpiry;
-      if (credentials.expiry_date && !isNaN(Number(credentials.expiry_date))) {
-        expiryDate = new Date(Number(credentials.expiry_date));
-      }
 
+    const updatedAccessToken = credentials.access_token || settings.googleAccessToken;
+    const updatedRefreshToken = credentials.refresh_token || settings.googleRefreshToken;
+
+    await prisma.settings.update({
+      where: { id: 1 },
+      data: {
+        googleAccessToken: updatedAccessToken,
+        googleRefreshToken: updatedRefreshToken,
+        googleTokenExpiry: expiryDate,
+      },
+    });
+    invalidateSettingsCache();
+
+    if (activeOAuthClient) {
+      activeOAuthClient.setCredentials({
+        access_token: updatedAccessToken || undefined,
+        refresh_token: updatedRefreshToken || undefined,
+        expiry_date: expiryDate ? expiryDate.getTime() : undefined,
+      });
+    }
+
+    console.log('🔄 Successfully refreshed Google access token.');
+    return updatedAccessToken!;
+  } catch (err: any) {
+    const errMsg = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+    const isInvalidGrant = errMsg.includes('invalid_grant') || 
+      err?.response?.data?.error === 'invalid_grant' || 
+      errMsg.includes('expired or revoked');
+
+    if (isInvalidGrant) {
+      console.error('❌ Google session permanently expired (invalid_grant). Clearing credentials in DB.');
       await prisma.settings.update({
         where: { id: 1 },
         data: {
-          googleAccessToken: credentials.access_token || settings.googleAccessToken,
-          googleRefreshToken: credentials.refresh_token || settings.googleRefreshToken,
-          googleTokenExpiry: expiryDate,
+          googleAccessToken: null,
+          googleRefreshToken: null,
+          googleTokenExpiry: null,
         },
       });
       invalidateSettingsCache();
-      oauth2Client.setCredentials(credentials);
-    } catch (refreshErr) {
-      console.error('Failed to refresh Google access token:', refreshErr);
+      activeOAuthClient = null;
+      throw new GoogleSessionExpiredError('Google session expired (invalid grant). Please reconnect your Google account in Settings.');
+    }
+
+    throw err;
+  }
+}
+
+export async function getAuthenticatedClient() {
+  const settings = await getCachedSettings();
+
+  if (!settings?.googleAccessToken && !settings?.googleRefreshToken) {
+    throw new GoogleSessionExpiredError('Google account not linked. Please connect in Settings.');
+  }
+
+  // Check if token needs refresh with a 5-minute safety buffer
+  const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000;
+  const isExpiredOrClose = !settings.googleAccessToken || 
+    (settings.googleTokenExpiry && settings.googleTokenExpiry.getTime() <= fiveMinutesFromNow);
+
+  if (isExpiredOrClose && settings.googleRefreshToken) {
+    try {
+      await refreshGoogleTokens();
+    } catch (err) {
+      if (err instanceof GoogleSessionExpiredError) {
+        throw err;
+      }
+      console.warn('Initial token refresh attempt had non-fatal warning:', err);
     }
   }
 
+  const latestSettings = await getCachedSettings();
+  if (!latestSettings?.googleAccessToken) {
+    throw new GoogleSessionExpiredError('Google session expired. Please reconnect your Google account in Settings.');
+  }
+
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials({
+    access_token: latestSettings.googleAccessToken,
+    refresh_token: latestSettings.googleRefreshToken || undefined,
+    expiry_date: latestSettings.googleTokenExpiry ? latestSettings.googleTokenExpiry.getTime() : undefined,
+  });
+
+  // Attach listener to capture any tokens refreshed internally by googleapis
+  oauth2Client.on('tokens', async (newTokens) => {
+    try {
+      let expiryDate: Date | null = null;
+      if (newTokens.expiry_date && !isNaN(Number(newTokens.expiry_date))) {
+        expiryDate = new Date(Number(newTokens.expiry_date));
+      }
+      await prisma.settings.update({
+        where: { id: 1 },
+        data: {
+          googleAccessToken: newTokens.access_token || undefined,
+          googleRefreshToken: newTokens.refresh_token || undefined,
+          googleTokenExpiry: expiryDate || undefined,
+        },
+      });
+      invalidateSettingsCache();
+    } catch (saveErr) {
+      console.error('Failed to auto-save refreshed Google tokens:', saveErr);
+    }
+  });
+
+  activeOAuthClient = oauth2Client;
   return oauth2Client;
 }
 
@@ -175,20 +271,46 @@ const MIN_REQUEST_INTERVAL_MS = 250; // Max 4 requests/sec (safely under Google'
 
 export async function executeWithRetry<T>(
   fn: () => Promise<T>,
-  retries = 4,
+  retries = 3,
   delayMs = 1500
 ): Promise<T> {
   try {
     return await fn();
   } catch (err: any) {
     const status = err?.status || err?.response?.status || err?.code;
-    const isRateLimit = status === 429 || err?.message?.includes('Quota exceeded') || err?.message?.includes('RATE_LIMIT_EXCEEDED') || err?.message?.includes('User Rate Limit Exceeded');
+    const errMsg = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+
+    const isAuthError = status === 401 ||
+      errMsg.includes('invalid_grant') ||
+      errMsg.includes('invalid_token') ||
+      errMsg.includes('Token has been expired or revoked') ||
+      err?.response?.data?.error === 'invalid_grant';
+
+    if (isAuthError) {
+      console.warn('⚠️ Google Auth error detected during API call. Attempting refresh and retry...');
+      try {
+        await refreshGoogleTokens();
+        // Retry the operation once with fresh token
+        return await fn();
+      } catch (refreshErr: any) {
+        if (refreshErr instanceof GoogleSessionExpiredError) {
+          throw refreshErr;
+        }
+        const refreshMsg = String(refreshErr?.message || refreshErr);
+        if (refreshMsg.includes('invalid_grant')) {
+          throw new GoogleSessionExpiredError('Google session expired (invalid grant). Please reconnect your Google account in Settings.');
+        }
+        throw refreshErr;
+      }
+    }
+
+    const isRateLimit = status === 429 || errMsg.includes('Quota exceeded') || errMsg.includes('RATE_LIMIT_EXCEEDED') || errMsg.includes('User Rate Limit Exceeded');
     const isServerTransient = status === 500 || status === 503 || status === 502;
 
     if ((isRateLimit || isServerTransient) && retries > 0) {
       const jitter = Math.floor(Math.random() * 500);
       const waitTime = delayMs + jitter;
-      console.warn(`[Google Sheets API] Quota / rate limit hit (${status}). Retrying in ${waitTime}ms... (${retries} retries left)`);
+      console.warn(`[Google Sheets API] Transient error (${status}). Retrying in ${waitTime}ms... (${retries} retries left)`);
       await new Promise((resolve) => setTimeout(resolve, waitTime));
       return executeWithRetry(fn, retries - 1, delayMs * 2);
     }

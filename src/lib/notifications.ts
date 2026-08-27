@@ -94,6 +94,7 @@ export async function sendSystemNotification(title: string, message: string) {
 }
 
 let activeSyncPromise: Promise<any> | null = null;
+let lastBackgroundSyncTime = 0;
 
 export async function checkAndNotify() {
   try {
@@ -102,17 +103,21 @@ export async function checkAndNotify() {
       return { notified: 0, interval: settings.notificationInterval || 15, disabled: true };
     }
 
-    // 1. Perform automatic sheet sync in background (debounced to avoid multiple concurrent syncs)
+    // 1. Perform automatic sheet sync in background (throttled to at most once every 60s, debounced)
     let newLeadsSynced = 0;
     try {
-      if (!activeSyncPromise) {
+      const now = Date.now();
+      if (!activeSyncPromise && (now - lastBackgroundSyncTime >= 60000)) {
+        lastBackgroundSyncTime = now;
         activeSyncPromise = performSheetSync().finally(() => {
           activeSyncPromise = null;
         });
       }
-      const syncTimeout = new Promise((resolve) => setTimeout(() => resolve({ synced: 0, timeout: true }), 5000));
-      const syncResult: any = await Promise.race([activeSyncPromise, syncTimeout]);
-      newLeadsSynced = syncResult?.synced || 0;
+      if (activeSyncPromise) {
+        const syncTimeout = new Promise((resolve) => setTimeout(() => resolve({ synced: 0, timeout: true }), 5000));
+        const syncResult: any = await Promise.race([activeSyncPromise, syncTimeout]);
+        newLeadsSynced = syncResult?.synced || 0;
+      }
     } catch (syncErr) {
       console.error('Auto background sync warning:', syncErr);
     }

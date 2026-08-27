@@ -1142,7 +1142,11 @@ export default function DashboardPage() {
         showToast(msg);
         fetchLeads(true);
       } else {
-        showToast(data.error || "Sync failed", "error");
+        if (data.isSessionExpired || data.error?.includes("Google session expired") || data.error?.includes("invalid grant")) {
+          showToast("Google session expired. Please reconnect in Settings.", "error");
+        } else {
+          showToast(data.error || "Sync failed", "error");
+        }
       }
     } catch {
       showToast("Sync failed", "error");

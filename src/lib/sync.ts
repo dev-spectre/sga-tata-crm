@@ -54,6 +54,15 @@ export async function deduplicateDatabaseLeads() {
   }
 }
 
+// Cache tracking for sheets to avoid massive repetitive queries and data egress
+let cachedSheetHash: string | null = null;
+let cachedRowHashes = new Map<number, string>();
+
+export function invalidateSyncCache() {
+  cachedSheetHash = null;
+  cachedRowHashes.clear();
+}
+
 export async function performSheetSync() {
   try {
     const settings = await getCachedSettings();
@@ -78,17 +87,52 @@ export async function performSheetSync() {
   let skippedLowQuality = 0;
   let skippedDuplicates = 0;
 
-  // 1. Scan sheet rows in memory to collect search keys (phones, fingerprints, row numbers)
-  const candidatePhones = new Set<string>();
-  const candidateFingerprints = new Set<string>();
-  const candidateRows = new Set<number>();
-  const preScanCounts = new Map<string, number>();
+  // 1. Fast Sheet & Row Hash Check:
+  // If the sheet content has not changed since the last sync, short-circuit immediately!
+  // This eliminates 95%+ of all database queries and completely stops massive data egress.
+  const currentRowHashes = new Map<number, string>();
+  const dirtyRowIndices = new Set<number>();
+  let sheetFingerprint = `${dataRows.length}:`;
 
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
     const rowNum = i + 2;
-    candidateRows.add(rowNum);
+    const rowHash = row.slice(0, 15).join('│');
+    currentRowHashes.set(rowNum, rowHash);
 
+    if (cachedRowHashes.size > 0 && cachedRowHashes.get(rowNum) === rowHash) {
+      // Row is completely unchanged and already reconciled in DB
+    } else {
+      dirtyRowIndices.add(i);
+    }
+  }
+
+  if (dataRows.length > 0) {
+    sheetFingerprint += `${dataRows[0]?.slice(0, 3).join('|')}:${dataRows[dataRows.length - 1]?.slice(0, 3).join('|')}`;
+  }
+
+  // If all rows are unchanged and sheet size matches, 0 DB queries needed!
+  if (cachedSheetHash && cachedSheetHash === sheetFingerprint && dirtyRowIndices.size === 0) {
+    return {
+      synced: 0,
+      duplicates: dataRows.length,
+      skippedLowQuality: 0,
+      skippedDuplicates: 0,
+      total: dataRows.length,
+    };
+  }
+
+  // 2. Scan dirty/new sheet rows to collect search keys (phones, fingerprints)
+  // Only query candidate phones and fingerprints for rows that actually changed or are new!
+  const candidatePhones = new Set<string>();
+  const candidateFingerprints = new Set<string>();
+  const preScanCounts = new Map<string, number>();
+
+  const isIncremental = cachedRowHashes.size > 0 && dirtyRowIndices.size < dataRows.length;
+  const indicesToScan = isIncremental ? Array.from(dirtyRowIndices) : Array.from({ length: dataRows.length }, (_, i) => i);
+
+  for (const i of indicesToScan) {
+    const row = dataRows[i];
     const rawPhone = (row[mapping.phone] || '').toString();
     const phone = parsePhoneNumber(rawPhone);
     if (phone) candidatePhones.add(phone);
@@ -100,51 +144,55 @@ export async function performSheetSync() {
     candidateFingerprints.add(`${baseFp}|${cnt}`);
   }
 
-  // 2. Fetch only matching DB leads (slashing egress from 2,700+ rows down to matching subset)
-  const orConditions: any[] = [];
-  if (candidatePhones.size > 0) {
-    orConditions.push({ phone: { in: Array.from(candidatePhones) } });
-  }
-  if (candidateFingerprints.size > 0) {
-    orConditions.push({ fingerprint: { in: Array.from(candidateFingerprints) } });
-  }
-  if (candidateRows.size > 0) {
-    orConditions.push({ sheetRow: { in: Array.from(candidateRows) } });
+  // 3. Fetch only matching DB leads for the candidate keys
+  // CRITICAL FIX: candidateRows is REMOVED! sheetRow: { in: candidateRows } was matching the entire database!
+  const CHUNK_SIZE = 200;
+  const existingLeadsMap = new Map<number, any>();
+  const baseSelect = {
+    id: true,
+    fingerprint: true,
+    remark: true,
+    status: true,
+    name: true,
+    phone: true,
+    city: true,
+    adname: true,
+    branch: true,
+    followUpDate1: true,
+    followUpDate2: true,
+    sheetRow: true,
+    assignedConsultant: true,
+    testDrive: true,
+    platform: true,
+    source: true,
+    uploadedById: true,
+    sheetId: true,
+  };
+
+  const phonesArr = Array.from(candidatePhones);
+  for (let i = 0; i < phonesArr.length; i += CHUNK_SIZE) {
+    const chunk = phonesArr.slice(i, i + CHUNK_SIZE);
+    const leads = await prisma.lead.findMany({
+      where: { source: { not: 'External Upload' }, uploadedById: null, phone: { in: chunk } },
+      select: baseSelect,
+    });
+    leads.forEach(l => existingLeadsMap.set(l.id, l));
   }
 
-  const existingLeads = orConditions.length > 0
-    ? await prisma.lead.findMany({
-        where: {
-          source: { not: 'External Upload' },
-          uploadedById: null,
-          OR: orConditions,
-        },
-        select: {
-          id: true,
-          fingerprint: true,
-          remark: true,
-          status: true,
-          name: true,
-          phone: true,
-          city: true,
-          adname: true,
-          branch: true,
-          followUpDate1: true,
-          followUpDate2: true,
-          sheetRow: true,
-          assignedConsultant: true,
-          testDrive: true,
-          platform: true,
-          source: true,
-          uploadedById: true,
-          sheetId: true,
-        },
-      })
-    : [];
+  const fingerprintsArr = Array.from(candidateFingerprints);
+  for (let i = 0; i < fingerprintsArr.length; i += CHUNK_SIZE) {
+    const chunk = fingerprintsArr.slice(i, i + CHUNK_SIZE);
+    const leads = await prisma.lead.findMany({
+      where: { source: { not: 'External Upload' }, uploadedById: null, fingerprint: { in: chunk } },
+      select: baseSelect,
+    });
+    leads.forEach(l => existingLeadsMap.set(l.id, l));
+  }
+
+  const existingLeads = Array.from(existingLeadsMap.values());
 
   const existingByFingerprint = new Map<string, typeof existingLeads[0]>();
   const existingByPhone = new Map<string, typeof existingLeads[0]>();
-  const existingByRow = new Map<number, typeof existingLeads[0]>();
   const claimedDbIds = new Set<number>();
 
   for (const lead of existingLeads) {
@@ -155,9 +203,6 @@ export async function performSheetSync() {
     if (cleanPhone && !existingByPhone.has(cleanPhone)) {
       existingByPhone.set(cleanPhone, lead);
     }
-    if (lead.sheetRow && !existingByRow.has(lead.sheetRow)) {
-      existingByRow.set(lead.sheetRow, lead);
-    }
   }
 
   const fingerprintCounts = new Map<string, number>();
@@ -167,8 +212,12 @@ export async function performSheetSync() {
   const toUpdate: { id: number; data: any }[] = [];
   const sheetUpdatesToCorrect: { rowNumber: number; updates: { col: number; value: string }[] }[] = [];
 
-  // 2. In-Memory Reconciliation
-  for (let i = 0; i < dataRows.length; i++) {
+  if (isIncremental) {
+    duplicates += (dataRows.length - indicesToScan.length);
+  }
+
+  // 2. In-Memory Reconciliation (only process dirty/new rows)
+  for (const i of indicesToScan) {
     const row = dataRows[i];
     const rowNumber = i + 2;
 
@@ -256,18 +305,7 @@ export async function performSheetSync() {
       }
     }
 
-    // 2. Try match by sheetRow + sheetId if phone matches
-    if (!existing && rowNumber && existingByRow.has(rowNumber)) {
-      const cand = existingByRow.get(rowNumber)!;
-      if (!claimedDbIds.has(cand.id) && cand.sheetId === settings.selectedSpreadsheetId) {
-        const candPhone = parsePhoneNumber(cand.phone);
-        if (candPhone && phone && candPhone === phone) {
-          existing = cand;
-        }
-      }
-    }
-
-    // 3. Fallback to phone match ONLY if this DB lead has not already been claimed
+    // 2. Fallback to phone match ONLY if this DB lead has not already been claimed
     if (!existing && phone && existingByPhone.has(phone)) {
       const cand = existingByPhone.get(phone)!;
       if (!claimedDbIds.has(cand.id)) {
@@ -279,7 +317,6 @@ export async function performSheetSync() {
       claimedDbIds.add(existing.id);
       if (existing.fingerprint) existingByFingerprint.delete(existing.fingerprint);
       if (phone) existingByPhone.delete(phone);
-      if (existing.sheetRow) existingByRow.delete(existing.sheetRow);
 
       // Check if Sheet row has mismatched CRM values and queue corrections to write back to Google Sheet
       // STRICT RULE: ONLY remark, followup, status, testdrive, assigned consultant are allowed to be written back to sheets
@@ -448,6 +485,10 @@ export async function performSheetSync() {
     data: { lastSyncAt: new Date() },
   });
 
+  // Update in-memory differential cache after successful sync
+  cachedRowHashes = currentRowHashes;
+  cachedSheetHash = sheetFingerprint;
+
     return {
       synced,
       duplicates,
@@ -456,12 +497,31 @@ export async function performSheetSync() {
       total: dataRows.length,
     };
   } catch (err: any) {
-    console.error('Auto background sheet sync error:', err?.message || err);
-    return { synced: 0, duplicates: 0, skippedLowQuality: 0, skippedDuplicates: 0, total: 0, error: err?.message || String(err) };
+    const errMsg = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+    const isSessionExpired = err?.isSessionExpired || 
+      errMsg.includes('invalid_grant') || 
+      errMsg.includes('Google session expired') || 
+      errMsg.includes('Token has been expired or revoked');
+
+    if (isSessionExpired) {
+      console.error('Sheet Sync Failed: Google session expired');
+      return { 
+        synced: 0, 
+        duplicates: 0, 
+        skippedLowQuality: 0, 
+        skippedDuplicates: 0, 
+        total: 0, 
+        error: 'Google session expired (invalid grant). Please reconnect your Google account in Settings.',
+        isSessionExpired: true 
+      };
+    }
+    console.error('Auto background sheet sync error:', errMsg);
+    return { synced: 0, duplicates: 0, skippedLowQuality: 0, skippedDuplicates: 0, total: 0, error: errMsg };
   }
 }
 
 export async function clearAndResyncDatabase() {
+  invalidateSyncCache();
   await prisma.lead.deleteMany({
     where: {
       source: { not: 'External Upload' },

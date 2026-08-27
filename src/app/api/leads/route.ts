@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     const uploadedById = searchParams.get('uploadedById');
 
     const requestedLimit = parseInt(searchParams.get('limit') || '20');
-    const maxAllowedLimit = (isExport || uploadedById) ? 10000 : (hasFollowUp ? 5000 : 20);
+    const maxAllowedLimit = isExport ? 10000 : (uploadedById ? 1000 : (hasFollowUp ? 100 : 20));
     const limit = Math.min(Math.max(1, isNaN(requestedLimit) ? 20 : requestedLimit), maxAllowedLimit);
 
     const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);

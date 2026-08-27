@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { computeIntelligentMapping } from '@/lib/mapping';
 import { getCurrentUser } from '@/lib/auth';
 import { getCachedSettings, invalidateSettingsCache } from '@/lib/settings';
+import { invalidateSyncCache } from '@/lib/sync';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
           uploadedById: null,
         },
       });
+      invalidateSyncCache();
     }
     
     await prisma.settings.upsert({

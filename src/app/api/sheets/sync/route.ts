@@ -5,7 +5,7 @@ export async function POST() {
   try {
     const result = await performSheetSync();
     if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ error: result.error, isSessionExpired: Boolean(result.isSessionExpired) }, { status: 400 });
     }
     return NextResponse.json(result);
   } catch (error) {

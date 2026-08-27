@@ -325,7 +325,7 @@ export default function AccountsPage() {
   const fetchUploadedLeads = async (userId: number) => {
     setLoadingUploadedLeads(true);
     try {
-      const res = await fetch(`/api/leads?uploadedById=${userId}&limit=1000`);
+      const res = await fetch(`/api/leads?uploadedById=${userId}&limit=1000&skipStats=true&skipActivities=true`);
       const data = await res.json();
       if (res.ok && data.leads) {
         setUploadedLeads(data.leads.filter((l: any) => l.source === 'External Upload' && l.uploadedById === userId));
