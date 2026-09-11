@@ -13,8 +13,8 @@
 
 ### Location Knowledge & Fuzzy Matching
 
-- [ ] **LOC-01**: Embedded Tamil Nadu geographical dictionary containing major cities, towns, taluks, and common pincodes with pre-calculated centroid coordinates.
-- [ ] **LOC-02**: Fast, typo-tolerant fuzzy string matching to map misspellings, colloquial names, and partial city strings to canonical locations without network calls.
+- [x] **LOC-01**: Embedded Tamil Nadu geographical dictionary containing major cities, towns, taluks, and common pincodes with pre-calculated centroid coordinates.
+- [x] **LOC-02**: Fast, typo-tolerant fuzzy string matching to map misspellings, colloquial names, and partial city strings to canonical locations without network calls.
 - [ ] **LOC-03**: Persistent PostgreSQL location cache (`LocationCache` model) storing sanitized search terms, latitude, longitude, canonical name, and source.
 
 ### Geocoding Fallback & Resilience
@@ -58,8 +58,8 @@
 | BRANCH-01 | Phase 1: Branch Data Model & API | Complete |
 | BRANCH-02 | Phase 2: Branches Management UI | Complete |
 | BRANCH-03 | Phase 1: Branch Data Model & API | Complete |
-| LOC-01 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Pending |
-| LOC-02 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Pending |
+| LOC-01 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Complete |
+| LOC-02 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Complete |
 | LOC-03 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
 | GEO-01 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
 | GEO-02 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
