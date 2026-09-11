@@ -14,7 +14,7 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 - [x] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
 - [x] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching** - Embedded TN cities/towns/pincodes with typo-tolerant matcher.
 - [x] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
-- [ ] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
+- [x] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
 - [ ] **Phase 6: Lead Ingestion & Sync Pipeline Integration** - Adapt Google Sheets sync, Excel upload modal, and webhooks.
 
 ## Phase Details
@@ -86,8 +86,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: Implement Haversine math module and branch distance ranking logic.
-- [ ] 05-02: Implement `assignNearestBranch(lead)` service with audit trail logging.
+- [x] 05-01: Implement Haversine math module and branch distance ranking logic.
+- [x] 05-02: Implement `assignNearestBranch(lead)` service with audit trail logging.
 
 ### Phase 6: Lead Ingestion & Sync Pipeline Integration
 **Goal**: Connect the routing engine into the live sync and import workflows, removing hardcoded branch dependencies.

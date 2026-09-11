@@ -25,9 +25,9 @@
 
 ### Nearest Branch Routing Engine
 
-- [ ] **ROUTE-01**: Geodesic distance engine using Haversine formula to compute distances in kilometers between lead coordinates and all operational branches.
-- [ ] **ROUTE-02**: Automated branch resolver assigning incoming leads to the geographically nearest active branch.
-- [ ] **ROUTE-03**: Audit log entry in `LeadActivity` recording the resolved location, distance to assigned branch, and matching method (dictionary, cache, or geocoder).
+- [x] **ROUTE-01**: Geodesic distance engine using Haversine formula to compute distances in kilometers between lead coordinates and all operational branches.
+- [x] **ROUTE-02**: Automated branch resolver assigning incoming leads to the geographically nearest active branch.
+- [x] **ROUTE-03**: Audit log entry in `LeadActivity` recording the resolved location, distance to assigned branch, and matching method (dictionary, cache, or geocoder).
 
 ### Lead Ingestion & Sheet Sync Adaptation
 
@@ -64,9 +64,9 @@
 | GEO-01 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
 | GEO-02 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
 | GEO-03 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
-| ROUTE-01 | Phase 5: Nearest-Branch Routing Engine | Pending |
-| ROUTE-02 | Phase 5: Nearest-Branch Routing Engine | Pending |
-| ROUTE-03 | Phase 5: Nearest-Branch Routing Engine | Pending |
+| ROUTE-01 | Phase 5: Nearest-Branch Routing Engine | Complete |
+| ROUTE-02 | Phase 5: Nearest-Branch Routing Engine | Complete |
+| ROUTE-03 | Phase 5: Nearest-Branch Routing Engine | Complete |
 | INGEST-01 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Pending |
 | INGEST-02 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Pending |
 | INGEST-03 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Pending |
