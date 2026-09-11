@@ -18,8 +18,8 @@ interface ColumnOption {
 const CRM_FIELDS = [
   { key: "name", label: "Customer Name", required: true, icon: "👤", hints: ["name", "full name", "client", "customer", "lead name", "prospect"] },
   { key: "phone", label: "Phone Number", required: true, icon: "📞", hints: ["phone", "mobile", "contact", "cell", "number", "tel"] },
-  { key: "branch", label: "Branch", required: false, icon: "📍", hints: ["branch", "showroom", "outlet", "dealer", "location"] },
-  { key: "city", label: "City / Place", required: false, icon: "🏙️", hints: ["city", "town", "place", "district", "address"] },
+  { key: "branch", label: "Branch", required: false, icon: "📍", hints: ["branch", "showroom", "outlet", "dealer"] },
+  { key: "city", label: "City / Location / Zipcode", required: false, icon: "🏙️", hints: ["location", "city", "town", "place", "district", "address", "zipcode", "pincode", "postal"] },
   { key: "assignedConsultant", label: "Assigned Consultant", required: false, icon: "🧑‍💼", hints: ["consultant", "executive", "advisor", "rep", "sales rep", "assigned"] },
   { key: "status", label: "Lead Status", required: false, icon: "📊", hints: ["status", "stage", "lead status", "disposition"] },
   { key: "adname", label: "Campaign / Ad Name", required: false, icon: "📢", hints: ["ad", "campaign", "ad name", "adset", "creative", "utm"] },
@@ -359,10 +359,10 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
           "City": "Coimbatore",
           "Assigned Consultant": "Rajesh",
           "Lead Status": "Not Contacted",
-          "Campaign / Ad Name": "Skoda Slavia Offer",
+          "Campaign / Ad Name": "Tata Nexon Creative Offer",
           "Platform / Source": "Instagram",
           "Test Drive": "Scheduled",
-          "Remark / Notes": "Interested in Slavia 1.5 TSI",
+          "Remark / Notes": "Interested in Nexon Fearless Plus S",
           "Created Date": "2026-08-20",
         },
         {
@@ -372,7 +372,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
           "City": "Chennai",
           "Assigned Consultant": "Karthik",
           "Lead Status": "Contacted",
-          "Campaign / Ad Name": "Skoda Kushaq Campaign",
+          "Campaign / Ad Name": "Tata Curvv EV Campaign",
           "Platform / Source": "Facebook",
           "Test Drive": "Completed",
           "Remark / Notes": "Completed test drive on Sunday",
@@ -385,7 +385,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
           "City": "Mettupalayam",
           "Assigned Consultant": "Unassigned",
           "Lead Status": "Completed",
-          "Campaign / Ad Name": "Kodiaq Exclusive Booking",
+          "Campaign / Ad Name": "Tata Safari Dark Edition Booking",
           "Platform / Source": "Google Ads",
           "Test Drive": "Not Scheduled",
           "Remark / Notes": "Booking confirmed",
@@ -410,7 +410,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
 
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Leads Template");
-      XLSX.writeFile(workbook, "SGA_Skoda_CRM_Sample_Template.xlsx");
+      XLSX.writeFile(workbook, "SGA_Tata_CRM_Sample_Template.xlsx");
     } catch (err: any) {
       setErrorMsg(`Failed to generate sample template: ${err?.message || "Unknown error"}`);
     }
@@ -486,7 +486,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
               <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
                 {step === 1
                   ? "Choose an Excel/CSV file, pick from Google Drive, or paste a Google Sheet link"
-                  : `Previewing ${totalRowsCount} rows • Map columns to SGA Skoda CRM fields`}
+                  : `Previewing ${totalRowsCount} rows • Map columns to SGA Tata CRM fields`}
               </div>
             </div>
           </div>
@@ -502,21 +502,21 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                 gap: "6px",
                 padding: "6px 12px",
                 borderRadius: "7px",
-                border: "1px solid rgba(16, 185, 129, 0.4)",
-                background: "#ecfdf5",
-                color: "#047857",
+                border: "1px solid rgba(0, 114, 188, 0.3)",
+                background: "#f0f9ff",
+                color: "#005086",
                 fontSize: "12px",
                 fontWeight: 600,
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#10b981";
+                e.currentTarget.style.background = "#0072bc";
                 e.currentTarget.style.color = "#ffffff";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#ecfdf5";
-                e.currentTarget.style.color = "#047857";
+                e.currentTarget.style.background = "#f0f9ff";
+                e.currentTarget.style.color = "#005086";
               }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 13, height: 13 }}>
@@ -650,8 +650,8 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      background: "#ecfdf5",
-                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                      background: "#f0f9ff",
+                      border: "1px solid rgba(0, 114, 188, 0.25)",
                       borderRadius: "10px",
                       padding: "10px 14px",
                       marginBottom: "14px",
@@ -659,7 +659,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <span style={{ fontSize: "16px" }}>💡</span>
-                      <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#047857" }}>
+                      <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#005086" }}>
                         Need a pre-formatted Excel template with sample data?
                       </span>
                     </div>
@@ -672,13 +672,13 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                         gap: "6px",
                         padding: "6px 12px",
                         borderRadius: "7px",
-                        background: "#10b981",
+                        background: "#0072bc",
                         color: "#ffffff",
                         border: "none",
                         fontSize: "12px",
                         fontWeight: 700,
                         cursor: "pointer",
-                        boxShadow: "0 2px 4px rgba(16, 185, 129, 0.2)",
+                        boxShadow: "0 2px 4px rgba(0, 114, 188, 0.2)",
                         transition: "all 0.15s ease",
                       }}
                     >
@@ -699,7 +699,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                       padding: "36px 20px",
                       textAlign: "center",
                       cursor: "pointer",
-                      background: selectedFile ? "rgba(16, 185, 129, 0.05)" : "var(--bg-card)",
+                      background: selectedFile ? "rgba(0, 114, 188, 0.05)" : "var(--bg-card)",
                       borderColor: selectedFile ? "var(--primary)" : "var(--border)",
                       transition: "all 0.2s ease",
                     }}
@@ -1020,10 +1020,10 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                             field.required && !isMapped
                               ? "rgba(239, 68, 68, 0.5)"
                               : isMapped
-                              ? "rgba(16, 185, 129, 0.4)"
+                              ? "rgba(0, 114, 188, 0.4)"
                               : "var(--border)"
                           }`,
-                          background: isMapped ? "rgba(16, 185, 129, 0.03)" : "var(--bg-card)",
+                          background: isMapped ? "rgba(0, 114, 188, 0.03)" : "var(--bg-card)",
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
@@ -1033,7 +1033,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                             {field.required && <span style={{ color: "#ef4444" }}>*</span>}
                           </label>
                           {isMapped && (
-                            <span style={{ fontSize: "10px", color: "#10b981", fontWeight: 700 }}>
+                            <span style={{ fontSize: "10px", color: "#0072bc", fontWeight: 700 }}>
                               ✓ Mapped
                             </span>
                           )}
@@ -1133,8 +1133,8 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
                 onClick={handleImportLeads}
                 disabled={importing || (mapping.name ?? -1) < 0 || (mapping.phone ?? -1) < 0}
                 style={{
-                  background: "linear-gradient(135deg, #10b981, #059669)",
-                  boxShadow: "0 4px 14px rgba(16, 185, 129, 0.4)",
+                  background: "linear-gradient(135deg, #0072bc, #005086)",
+                  boxShadow: "0 4px 14px rgba(0, 114, 188, 0.4)",
                   fontWeight: 700,
                 }}
               >

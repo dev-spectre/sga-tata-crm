@@ -2,6 +2,12 @@ import { prisma } from '@/lib/prisma';
 import { getSheetData, batchUpdateSheetRows } from '@/lib/google';
 import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
 import { getCachedSettings } from '@/lib/settings';
+import {
+  routeLeadToBranch,
+  logRoutingActivity,
+  BranchCandidate,
+  RoutingResult,
+} from '@/lib/location/routing';
 
 interface ColumnMapping {
   name: number;
@@ -86,6 +92,26 @@ export async function performSheetSync() {
   let duplicates = 0;
   let skippedLowQuality = 0;
   let skippedDuplicates = 0;
+
+  // Pre-fetch active branches once for nearest-branch routing
+  let activeBranches: BranchCandidate[] = [];
+  try {
+    activeBranches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        city: true,
+        latitude: true,
+        longitude: true,
+        radiusKm: true,
+        isActive: true,
+      },
+    });
+  } catch (err) {
+    console.error('Failed to pre-fetch active branches in sync:', err);
+  }
 
   // 1. Fast Sheet & Row Hash Check:
   // If the sheet content has not changed since the last sync, short-circuit immediately!
@@ -211,6 +237,7 @@ export async function performSheetSync() {
   const toCreate: any[] = [];
   const toUpdate: { id: number; data: any }[] = [];
   const sheetUpdatesToCorrect: { rowNumber: number; updates: { col: number; value: string }[] }[] = [];
+  const routingMap = new Map<string, RoutingResult>();
 
   if (isIncremental) {
     duplicates += (dataRows.length - indicesToScan.length);
@@ -388,13 +415,31 @@ export async function performSheetSync() {
         sheetUpdatesToCorrect.push({ rowNumber, updates: corrections });
       }
 
+      // Strict branch preservation:
+      // If incoming sheet row has no branch but DB lead already has an assigned branch, preserve existing branch!
+      let resolvedExistingBranch = existing.branch || '';
+      if (branch) {
+        resolvedExistingBranch = branch;
+      } else if (!resolvedExistingBranch && city) {
+        // Existing lead never had a branch assigned; auto-route it now
+        try {
+          const routeRes = await routeLeadToBranch(city, { candidateBranches: activeBranches });
+          if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
+            resolvedExistingBranch = routeRes.assignedBranch.name;
+            await logRoutingActivity(existing.id, routeRes);
+          }
+        } catch (err) {
+          console.warn(`Failed to auto-route existing lead ${existing.id}:`, err);
+        }
+      }
+
       // Only queue DB update if metadata changed from sheet, preserving DB CRM fields
       const hasMetadataChanged = (
         existing.name !== name ||
         existing.phone !== phone ||
         existing.city !== city ||
         existing.adname !== adname ||
-        existing.branch !== branch ||
+        existing.branch !== resolvedExistingBranch ||
         existing.platform !== platform ||
         existing.sheetRow !== rowNumber ||
         existing.sheetId !== settings.selectedSpreadsheetId
@@ -408,7 +453,7 @@ export async function performSheetSync() {
             phone,
             city,
             adname,
-            branch,
+            branch: resolvedExistingBranch,
             platform,
             sheetRow: rowNumber,
             sheetId: settings.selectedSpreadsheetId,
@@ -418,12 +463,25 @@ export async function performSheetSync() {
       }
       duplicates++;
     } else {
+      let finalNewBranch = branch;
+      if (!finalNewBranch && city) {
+        try {
+          const routeRes = await routeLeadToBranch(city, { candidateBranches: activeBranches });
+          if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
+            finalNewBranch = routeRes.assignedBranch.name;
+          }
+          routingMap.set(fingerprint, routeRes);
+        } catch (routeErr) {
+          console.warn('Auto routing error for new lead:', routeErr);
+        }
+      }
+
       toCreate.push({
         name,
         phone,
         city,
         adname,
-        branch,
+        branch: finalNewBranch || '',
         followUpDate1,
         followUpDate2,
         createdAt,
@@ -447,6 +505,29 @@ export async function performSheetSync() {
       data: toCreate,
       skipDuplicates: true,
     });
+
+    // Log routing activities for newly created leads that were auto-routed
+    const autoRoutedFps = Array.from(routingMap.keys());
+    if (autoRoutedFps.length > 0) {
+      try {
+        const createdLeads = await prisma.lead.findMany({
+          where: { fingerprint: { in: autoRoutedFps } },
+          select: { id: true, fingerprint: true },
+        });
+
+        await Promise.all(
+          createdLeads.map((l) => {
+            const res = l.fingerprint ? routingMap.get(l.fingerprint) : null;
+            if (res) {
+              return logRoutingActivity(l.id, res);
+            }
+            return Promise.resolve();
+          })
+        );
+      } catch (actErr) {
+        console.error('Failed to log routing activities for synced leads:', actErr);
+      }
+    }
   }
 
   // Update Existing Leads only when metadata changed

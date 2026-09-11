@@ -5,6 +5,12 @@ import { getSheetData } from '@/lib/google';
 import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
 import { isSuperAdminUser } from '@/lib/activity';
 import { getCachedSettings } from '@/lib/settings';
+import {
+  routeLeadToBranch,
+  logRoutingActivity,
+  BranchCandidate,
+  RoutingResult,
+} from '@/lib/location/routing';
 
 export async function POST(request: NextRequest) {
   try {
@@ -132,6 +138,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let activeBranches: BranchCandidate[] = [];
+    try {
+      activeBranches = await prisma.branch.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          city: true,
+          latitude: true,
+          longitude: true,
+          radiusKm: true,
+          isActive: true,
+        },
+      });
+    } catch (err) {
+      console.error('Failed to pre-fetch active branches in external upload:', err);
+    }
+    const routingMap = new Map<string, RoutingResult>();
+
     for (let i = 0; i < dataRows.length; i++) {
       const row = dataRows[i];
 
@@ -197,7 +223,19 @@ export async function POST(request: NextRequest) {
       }
 
       const assignedConsultant = sanitizeField(getVal(row, mapping.assignedConsultant)) || null;
-      const branch = sanitizeField(getVal(row, mapping.branch)) || currentUser.assignedBranch || '';
+      let branch = sanitizeField(getVal(row, mapping.branch)) || currentUser.assignedBranch || '';
+
+      if (!branch && cleanCity) {
+        try {
+          const routeRes = await routeLeadToBranch(cleanCity, { candidateBranches: activeBranches });
+          if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
+            branch = routeRes.assignedBranch.name;
+          }
+          routingMap.set(fingerprint, routeRes);
+        } catch (routeErr) {
+          console.warn('Auto-routing error in external upload:', routeErr);
+        }
+      }
 
       toCreate.push({
         name: name || 'Unknown',
@@ -254,6 +292,24 @@ export async function POST(request: NextRequest) {
                 data: activityData.slice(i, i + chunkSize),
               });
             }
+          }
+
+          // Log routing activity for leads auto-assigned by the routing engine
+          const autoRoutedFps = Array.from(routingMap.keys());
+          if (autoRoutedFps.length > 0) {
+            const routedLeads = await prisma.lead.findMany({
+              where: { fingerprint: { in: autoRoutedFps } },
+              select: { id: true, fingerprint: true },
+            });
+            await Promise.all(
+              routedLeads.map((l) => {
+                const res = l.fingerprint ? routingMap.get(l.fingerprint) : null;
+                if (res) {
+                  return logRoutingActivity(l.id, res, currentUser.username || 'System');
+                }
+                return Promise.resolve();
+              })
+            );
           }
         } catch (actErr) {
           console.error('Failed to log batch upload activities:', actErr);

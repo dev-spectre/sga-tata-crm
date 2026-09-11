@@ -15,7 +15,7 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 - [x] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching** - Embedded TN cities/towns/pincodes with typo-tolerant matcher.
 - [x] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
 - [x] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
-- [ ] **Phase 6: Lead Ingestion & Sync Pipeline Integration** - Adapt Google Sheets sync, Excel upload modal, and webhooks.
+- [x] **Phase 6: Lead Ingestion & Sync Pipeline Integration** - Adapt Google Sheets sync, Excel upload modal, and webhooks.
 
 ## Phase Details
 
@@ -100,8 +100,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: Update Google Sheets sync engine and column mapping logic.
-- [ ] 06-02: Update external upload modal and lead webhook ingestion handlers.
+- [x] 06-01: Update Google Sheets sync engine and column mapping logic.
+- [x] 06-02: Update external upload modal and lead webhook ingestion handlers.
 
 ## Progress
 
@@ -111,8 +111,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Branch Data Model & CRUD API | 2/2 | Complete | 2026-09-11 |
-| 2. Branches Management UI | 0/2 | Not started | - |
-| 3. Tamil Nadu Location Knowledge Base & Fuzzy Matching | 0/2 | Not started | - |
-| 4. Geocoding Fallback Service & Rate-Limited Location Cache | 0/2 | Not started | - |
-| 5. Nearest-Branch Routing Engine | 0/2 | Not started | - |
-| 6. Lead Ingestion & Sync Pipeline Integration | 0/2 | Not started | - |
+| 2. Branches Management UI | 2/2 | Complete | 2026-09-11 |
+| 3. Tamil Nadu Location Knowledge Base & Fuzzy Matching | 2/2 | Complete | 2026-09-11 |
+| 4. Geocoding Fallback Service & Rate-Limited Location Cache | 2/2 | Complete | 2026-09-11 |
+| 5. Nearest-Branch Routing Engine | 2/2 | Complete | 2026-09-12 |
+| 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | Complete | 2026-09-12 |

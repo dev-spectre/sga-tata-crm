@@ -1063,7 +1063,7 @@ export default function DashboardPage() {
     const cols = Object.keys(exportData[0]).map(() => ({ wch: 15 }));
     worksheet['!cols'] = cols;
 
-    XLSX.writeFile(workbook, "SGA_Skoda_Leads.xlsx");
+    XLSX.writeFile(workbook, "SGA_Tata_Leads.xlsx");
     setExportLoading(false);
     showToast("Excel exported successfully");
   };
@@ -1091,7 +1091,7 @@ export default function DashboardPage() {
     const doc = new jsPDF();
 
     doc.setFontSize(16);
-    doc.text("SGA Skoda Leads Report", 14, 15);
+    doc.text("SGA Tata Leads Report", 14, 15);
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
@@ -1118,10 +1118,10 @@ export default function DashboardPage() {
       body: tableRows,
       startY: 28,
       theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129] }
+      headStyles: { fillColor: [0, 114, 188] }
     });
 
-    doc.save("SGA_Skoda_Leads.pdf");
+    doc.save("SGA_Tata_Leads.pdf");
     setExportLoading(false);
     showToast("PDF exported successfully");
   };
@@ -2009,7 +2009,24 @@ export default function DashboardPage() {
                                 <span key={idx} style={{ background: "rgba(0,0,0,0.05)", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, whiteSpace: "nowrap", display: "inline-block" }}>
                                   {b}
                                 </span>
-                              )) : "—"}
+                              )) : (
+                                <span
+                                  style={{
+                                    background: "rgba(239, 68, 68, 0.1)",
+                                    color: "#dc2626",
+                                    border: "1px solid rgba(239, 68, 68, 0.25)",
+                                    padding: "2px 8px",
+                                    borderRadius: "12px",
+                                    fontSize: "11px",
+                                    fontWeight: 600,
+                                    whiteSpace: "nowrap",
+                                    display: "inline-block",
+                                  }}
+                                  title="Unassigned branch — Out of state or unmapped location"
+                                >
+                                  Unassigned
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td>
@@ -2306,7 +2323,23 @@ export default function DashboardPage() {
                               <span key={idx} style={{ background: "rgba(0,0,0,0.06)", padding: "1px 6px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 {b}
                               </span>
-                            )) : "—"}
+                            )) : (
+                              <span
+                                style={{
+                                  background: "rgba(239, 68, 68, 0.1)",
+                                  color: "#dc2626",
+                                  border: "1px solid rgba(239, 68, 68, 0.25)",
+                                  padding: "1px 6px",
+                                  borderRadius: "8px",
+                                  fontSize: "11px",
+                                  fontWeight: 600,
+                                  whiteSpace: "nowrap",
+                                }}
+                                title="Unassigned branch — Out of state or unmapped location"
+                              >
+                                Unassigned
+                              </span>
+                            )}
                           </div>
                         </div>
 

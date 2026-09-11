@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { parsePhoneNumber, sanitizeField } from '@/lib/utils';
 import { getCachedSettings } from '@/lib/settings';
 import { checkAndNotify } from '@/lib/notifications';
+import { routeLeadToBranch, logRoutingActivity } from '@/lib/location/routing';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,6 +14,7 @@ export async function POST(request: NextRequest) {
     const rawPhone = (phone || '').toString().trim();
     const parsedPhone = parsePhoneNumber(rawPhone);
     const parsedCity = (city || '').toString().trim();
+    const rawBranch = (branch || '').toString().trim();
     
     if (!parsedName && !parsedPhone && !parsedCity) {
       return NextResponse.json(
@@ -39,6 +41,21 @@ export async function POST(request: NextRequest) {
     if (existingLead) {
       return NextResponse.json({ success: true, lead: existingLead, duplicate: true });
     }
+
+    // Nearest branch routing for inbound webhook leads
+    let assignedBranch = rawBranch;
+    let routingResult = null;
+    const locationInput = parsedCity || (body.zipcode || body.location || '').toString().trim();
+    if (!assignedBranch && locationInput) {
+      try {
+        routingResult = await routeLeadToBranch(locationInput);
+        if (routingResult.status === 'assigned' && routingResult.assignedBranch) {
+          assignedBranch = routingResult.assignedBranch.name;
+        }
+      } catch (routeErr) {
+        console.warn('Webhook auto-routing error:', routeErr);
+      }
+    }
     
     let lead;
     try {
@@ -48,7 +65,7 @@ export async function POST(request: NextRequest) {
           phone: parsedPhone,
           city: parsedCity,
           adname: adname ? String(adname).trim() : '',
-          branch: branch ? String(branch).trim() : '',
+          branch: assignedBranch,
           followUpDate1: followUpDate1 ? new Date(followUpDate1) : null,
           followUpDate2: followUpDate2 ? new Date(followUpDate2) : null,
           remark: remark ? String(remark).trim() : null,
@@ -57,6 +74,10 @@ export async function POST(request: NextRequest) {
           fingerprint,
         },
       });
+
+      if (routingResult) {
+        logRoutingActivity(lead.id, routingResult, 'Webhook').catch(console.error);
+      }
     } catch (err: any) {
       if (err?.code === 'P2002') {
         const found = await prisma.lead.findFirst({ where: { fingerprint } });

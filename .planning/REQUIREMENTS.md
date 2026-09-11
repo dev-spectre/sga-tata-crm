@@ -31,9 +31,9 @@
 
 ### Lead Ingestion & Sheet Sync Adaptation
 
-- [ ] **INGEST-01**: Update Google Sheets column mapping and sync logic (`src/lib/sync.ts`) to remove branch column requirement and ingest location (city) and optional zipcode.
-- [ ] **INGEST-02**: Update manual Excel/CSV external upload modal (`src/components/ExternalUploadModal.tsx`) to trigger auto-branch assignment for uploaded rows lacking branch data.
-- [ ] **INGEST-03**: Inbound direct lead webhook (`/api/webhooks/lead`) automatically triggers location resolution and nearest branch assignment.
+- [x] **INGEST-01**: Update Google Sheets column mapping and sync logic (`src/lib/sync.ts`) to remove branch column requirement and ingest location (city) and optional zipcode.
+- [x] **INGEST-02**: Update manual Excel/CSV external upload modal (`src/components/ExternalUploadModal.tsx`) to trigger auto-branch assignment for uploaded rows lacking branch data.
+- [x] **INGEST-03**: Inbound direct lead webhook (`/api/webhooks/lead`) automatically triggers location resolution and nearest branch assignment.
 
 ## v2 Requirements
 
@@ -67,9 +67,9 @@
 | ROUTE-01 | Phase 5: Nearest-Branch Routing Engine | Complete |
 | ROUTE-02 | Phase 5: Nearest-Branch Routing Engine | Complete |
 | ROUTE-03 | Phase 5: Nearest-Branch Routing Engine | Complete |
-| INGEST-01 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Pending |
-| INGEST-02 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Pending |
-| INGEST-03 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Pending |
+| INGEST-01 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Complete |
+| INGEST-02 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Complete |
+| INGEST-03 | Phase 6: Lead Ingestion & Sync Pipeline Integration | Complete |
 
 **Coverage:**
 - v1 requirements: 15 total
