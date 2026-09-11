@@ -10,7 +10,10 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 }
 
 export type ExtendedPrismaClient = PrismaClient & {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   consultant: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  branch: any;
 };
 
 const globalForPrisma = globalThis as unknown as {
