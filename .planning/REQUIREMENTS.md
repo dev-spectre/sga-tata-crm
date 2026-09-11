@@ -15,13 +15,13 @@
 
 - [x] **LOC-01**: Embedded Tamil Nadu geographical dictionary containing major cities, towns, taluks, and common pincodes with pre-calculated centroid coordinates.
 - [x] **LOC-02**: Fast, typo-tolerant fuzzy string matching to map misspellings, colloquial names, and partial city strings to canonical locations without network calls.
-- [ ] **LOC-03**: Persistent PostgreSQL location cache (`LocationCache` model) storing sanitized search terms, latitude, longitude, canonical name, and source.
+- [x] **LOC-03**: Persistent PostgreSQL location cache (`LocationCache` model) storing sanitized search terms, latitude, longitude, canonical name, and source.
 
 ### Geocoding Fallback & Resilience
 
-- [ ] **GEO-01**: External geocoding service integration (Google Maps Geocoding API / Nominatim fallback) invoked only when local dictionary matching fails.
-- [ ] **GEO-02**: Strict client-side rate limiting (queueing and throttling) on geocoding requests to prevent rate limit exhaustion and unexpected costs.
-- [ ] **GEO-03**: Immediate caching of successfully resolved geocodes into `LocationCache` to ensure zero repeat API calls for previously resolved locations.
+- [x] **GEO-01**: External geocoding service integration (Google Maps Geocoding API / Nominatim fallback) invoked only when local dictionary matching fails.
+- [x] **GEO-02**: Strict client-side rate limiting (queueing and throttling) on geocoding requests to prevent rate limit exhaustion and unexpected costs.
+- [x] **GEO-03**: Immediate caching of successfully resolved geocodes into `LocationCache` to ensure zero repeat API calls for previously resolved locations.
 
 ### Nearest Branch Routing Engine
 
@@ -60,10 +60,10 @@
 | BRANCH-03 | Phase 1: Branch Data Model & API | Complete |
 | LOC-01 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Complete |
 | LOC-02 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Complete |
-| LOC-03 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
-| GEO-01 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
-| GEO-02 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
-| GEO-03 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Pending |
+| LOC-03 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
+| GEO-01 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
+| GEO-02 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
+| GEO-03 | Phase 4: Geocoding Fallback Service & Rate-Limited Cache | Complete |
 | ROUTE-01 | Phase 5: Nearest-Branch Routing Engine | Pending |
 | ROUTE-02 | Phase 5: Nearest-Branch Routing Engine | Pending |
 | ROUTE-03 | Phase 5: Nearest-Branch Routing Engine | Pending |

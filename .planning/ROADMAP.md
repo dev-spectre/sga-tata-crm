@@ -13,7 +13,7 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 - [x] **Phase 1: Branch Data Model & CRUD API** - Model branches with coordinates in Prisma and build REST endpoints.
 - [x] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
 - [x] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching** - Embedded TN cities/towns/pincodes with typo-tolerant matcher.
-- [ ] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
+- [x] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
 - [ ] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
 - [ ] **Phase 6: Lead Ingestion & Sync Pipeline Integration** - Adapt Google Sheets sync, Excel upload modal, and webhooks.
 
@@ -72,8 +72,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: Create `LocationCache` Prisma model and migration.
-- [ ] 04-02: Implement rate-limited geocoding client with fallback cascade (Cache -> Geocoder -> Persist).
+- [x] 04-01: Create `LocationCache` Prisma model and migration.
+- [x] 04-02: Implement rate-limited geocoding client with fallback cascade (Cache -> Geocoder -> Persist).
 
 ### Phase 5: Nearest-Branch Routing Engine
 **Goal**: Automatically compute geodesic distances and assign incoming leads to the closest operational branch.

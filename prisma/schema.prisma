@@ -144,3 +144,20 @@ model Branch {
   @@index([isActive])
 }
 
+model LocationCache {
+  id            Int      @id @default(autoincrement())
+  searchTerm    String   @unique
+  canonicalName String
+  district      String   @default("")
+  state         String   @default("")
+  latitude      Float
+  longitude     Float
+  source        String   @default("geocoder")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([searchTerm])
+  @@index([canonicalName])
+  @@index([state])
+}
+

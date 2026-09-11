@@ -14,6 +14,8 @@ export type ExtendedPrismaClient = PrismaClient & {
   consultant: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   branch: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  locationCache: any;
 };
 
 const globalForPrisma = globalThis as unknown as {
