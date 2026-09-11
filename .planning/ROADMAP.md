@@ -11,7 +11,7 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 - Decimal phases (e.g. 2.1): Urgent insertions if needed
 
 - [x] **Phase 1: Branch Data Model & CRUD API** - Model branches with coordinates in Prisma and build REST endpoints.
-- [ ] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
+- [x] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
 - [ ] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching** - Embedded TN cities/towns/pincodes with typo-tolerant matcher.
 - [ ] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
 - [ ] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
@@ -44,8 +44,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Build `/branches` page with branch table, search filter, and status toggle.
-- [ ] 02-02: Build branch create/edit modal and integrate with sidebar navigation.
+- [x] 02-01: Build `/branches` page with branch table, search filter, and status toggle.
+- [x] 02-02: Build branch create/edit modal and integrate with sidebar navigation.
 
 ### Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching
 **Goal**: Deliver an offline-first dictionary of Tamil Nadu locations capable of resolving cities, towns, and pincodes with typo tolerance.

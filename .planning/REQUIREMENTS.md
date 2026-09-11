@@ -8,7 +8,7 @@
 ### Branches Management
 
 - [x] **BRANCH-01**: Prisma schema defines `Branch` model with `name`, `code`, `address`, `city`, `latitude`, `longitude`, `radiusKm`, and `isActive` status.
-- [ ] **BRANCH-02**: Dedicated Branches Management view (`/branches`) in the dashboard navigation to view, create, edit, and toggle active status of branches.
+- [x] **BRANCH-02**: Dedicated Branches Management view (`/branches`) in the dashboard navigation to view, create, edit, and toggle active status of branches.
 - [x] **BRANCH-03**: Backend API endpoints (`/api/branches`, `/api/branches/[id]`) supporting full CRUD operations with role-based validation.
 
 ### Location Knowledge & Fuzzy Matching
@@ -56,7 +56,7 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | BRANCH-01 | Phase 1: Branch Data Model & API | Complete |
-| BRANCH-02 | Phase 2: Branches Management UI | Pending |
+| BRANCH-02 | Phase 2: Branches Management UI | Complete |
 | BRANCH-03 | Phase 1: Branch Data Model & API | Complete |
 | LOC-01 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Pending |
 | LOC-02 | Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching | Pending |

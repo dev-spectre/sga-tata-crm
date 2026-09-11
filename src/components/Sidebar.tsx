@@ -80,10 +80,10 @@ export function Sidebar() {
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div className="sidebar-logo" style={{ width: 32, height: 32, background: "transparent", boxShadow: "none" }}>
-              <img src="/logo.jpg" alt="Skoda Logo" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "6px" }} />
+              <img src="/logo.jpg" alt="Tata Logo" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "6px" }} />
             </div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.2 }}>SGA Skoda</div>
+              <div style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.2 }}>SGA Tata</div>
               <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>CRM</div>
             </div>
           </div>
@@ -101,13 +101,13 @@ export function Sidebar() {
                   user.role === "SUPERADMIN"
                     ? "rgba(168, 85, 247, 0.15)"
                     : user.role === "ADMIN"
-                    ? "rgba(16, 185, 129, 0.15)"
+                    ? "rgba(0, 114, 188, 0.15)"
                     : "rgba(59, 130, 246, 0.15)",
                 color:
                   user.role === "SUPERADMIN"
                     ? "#a855f7"
                     : user.role === "ADMIN"
-                    ? "#059669"
+                    ? "#0072bc"
                     : "#2563eb",
               }}
             >
@@ -130,10 +130,10 @@ export function Sidebar() {
         <div className="sidebar-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div className="sidebar-logo" style={{ background: "transparent", boxShadow: "none" }}>
-              <img src="/logo.jpg" alt="Skoda Logo" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "var(--radius-sm)" }} />
+              <img src="/logo.jpg" alt="Tata Logo" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "var(--radius-sm)" }} />
             </div>
             <div>
-              <div className="sidebar-title">SGA Skoda</div>
+              <div className="sidebar-title">SGA Tata</div>
               <div className="sidebar-subtitle">CRM Dashboard</div>
             </div>
           </div>
@@ -191,6 +191,16 @@ export function Sidebar() {
                   <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                 </svg>
                 User Activity
+              </Link>
+              <Link
+                href="/branches"
+                onClick={() => setMobileOpen(false)}
+                className={`sidebar-link ${pathname === "/branches" ? "active" : ""}`}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v2M12 14v2M16 14v2" />
+                </svg>
+                Branches
               </Link>
               <Link
                 href="/consultants"
