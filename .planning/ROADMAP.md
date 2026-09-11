@@ -10,7 +10,7 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 - Integer phases (1, 2, 3...): Planned milestone work
 - Decimal phases (e.g. 2.1): Urgent insertions if needed
 
-- [ ] **Phase 1: Branch Data Model & CRUD API** - Model branches with coordinates in Prisma and build REST endpoints.
+- [x] **Phase 1: Branch Data Model & CRUD API** - Model branches with coordinates in Prisma and build REST endpoints.
 - [ ] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
 - [ ] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching** - Embedded TN cities/towns/pincodes with typo-tolerant matcher.
 - [ ] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
@@ -30,8 +30,8 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Update Prisma schema with `Branch` model and execute migration.
-- [ ] 01-02: Implement `/api/branches` and `/api/branches/[id]` route handlers with RBAC validation.
+- [x] 01-01: Update Prisma schema with `Branch` model and execute migration.
+- [x] 01-02: Implement `/api/branches` and `/api/branches/[id]` route handlers with RBAC validation.
 
 ### Phase 2: Branches Management UI
 **Goal**: Provide dealership administrators with a dedicated UI to manage branches, input coordinates, and toggle active status.
@@ -110,7 +110,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Branch Data Model & CRUD API | 0/2 | Not started | - |
+| 1. Branch Data Model & CRUD API | 2/2 | Complete | 2026-09-11 |
 | 2. Branches Management UI | 0/2 | Not started | - |
 | 3. Tamil Nadu Location Knowledge Base & Fuzzy Matching | 0/2 | Not started | - |
 | 4. Geocoding Fallback Service & Rate-Limited Location Cache | 0/2 | Not started | - |

@@ -1,17 +1,32 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getCurrentUser } from '@/lib/auth';
 import { parseBranches } from '@/lib/utils';
 
-let cachedBranches: { data: string[]; timestamp: number } | null = null;
-const CACHE_TTL_MS = 60 * 1000; // 60 seconds
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const now = Date.now();
-    if (cachedBranches && now - cachedBranches.timestamp < CACHE_TTL_MS) {
-      return NextResponse.json({ branches: cachedBranches.data });
+    const searchParams = request.nextUrl.searchParams;
+    const format = searchParams.get('format');
+    const includeInactive = searchParams.get('includeInactive') === 'true';
+
+    const dbBranches = await prisma.branch.findMany({
+      where: includeInactive ? {} : { isActive: true },
+      orderBy: { name: 'asc' },
+    });
+
+    // If authoritative branches exist in the database, use them
+    if (dbBranches.length > 0) {
+      const branchNames = dbBranches.map((b: { name: string }) => b.name);
+      if (format === 'names') {
+        return NextResponse.json({ branches: branchNames });
+      }
+      return NextResponse.json({
+        branches: dbBranches,
+        branchNames,
+      });
     }
 
+    // Graceful fallback for legacy dropdowns before initial branches are seeded in DB
     const [rawLeadBranches, rawConsultants, rawUsers] = await Promise.all([
       prisma.lead.groupBy({
         by: ['branch'],
@@ -28,38 +43,121 @@ export async function GET() {
     ]);
 
     const branchMap = new Map<string, string>();
-
     const addBranch = (raw: string | null | undefined) => {
       if (!raw) return;
-      parseBranches(raw).forEach(clean => {
+      parseBranches(raw).forEach((clean) => {
         if (!clean) return;
         const key = clean.toLowerCase();
         if (!branchMap.has(key)) {
           branchMap.set(key, clean);
-        } else {
-          // If clean has all-uppercase acronym (like MTP), prefer it
-          if (clean === clean.toUpperCase()) {
-            branchMap.set(key, clean);
-          }
+        } else if (clean === clean.toUpperCase()) {
+          branchMap.set(key, clean);
         }
       });
     };
 
-    (rawLeadBranches as { branch: string | null }[]).forEach((b: { branch: string | null }) => addBranch(b.branch));
-    (rawConsultants as { branch: string | null }[]).forEach((c: { branch: string | null }) => addBranch(c.branch));
-    (rawUsers as { assignedBranch: string | null }[]).forEach((u: { assignedBranch: string | null }) => addBranch(u.assignedBranch));
+    (rawLeadBranches as { branch: string | null }[]).forEach((b) => addBranch(b.branch));
+    (rawConsultants as { branch: string | null }[]).forEach((c) => addBranch(c.branch));
+    (rawUsers as { assignedBranch: string | null }[]).forEach((u) => addBranch(u.assignedBranch));
 
-    const sortedBranches = Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b));
-    cachedBranches = { data: sortedBranches, timestamp: now };
+    const legacyNames = Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b));
 
-    return NextResponse.json({ branches: sortedBranches });
+    if (format === 'names') {
+      return NextResponse.json({ branches: legacyNames });
+    }
 
+    return NextResponse.json({
+      branches: [],
+      branchNames: legacyNames,
+    });
   } catch (error) {
     console.error('Branches fetch error:', error);
-    if (cachedBranches) {
-      return NextResponse.json({ branches: cachedBranches.data });
-    }
     return NextResponse.json({ error: 'Failed to fetch branches' }, { status: 500 });
   }
 }
 
+export async function POST(request: NextRequest) {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const isAdmin =
+      currentUser.role === 'ADMIN' ||
+      currentUser.role === 'SUPERADMIN' ||
+      Boolean(currentUser.isSuperAdmin);
+
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { name, code, address, city, latitude, longitude, radiusKm, isActive } = body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return NextResponse.json({ error: 'Branch name is required' }, { status: 400 });
+    }
+
+    if (!code || typeof code !== 'string' || !code.trim()) {
+      return NextResponse.json({ error: 'Branch code is required' }, { status: 400 });
+    }
+
+    const cleanName = name.trim();
+    const cleanCode = code.trim().toUpperCase();
+
+    // Check for collisions with existing branches
+    const existing = await prisma.branch.findFirst({
+      where: {
+        OR: [
+          { name: { equals: cleanName, mode: 'insensitive' } },
+          { code: { equals: cleanCode, mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (existing) {
+      const isCodeConflict = existing.code.toUpperCase() === cleanCode;
+      return NextResponse.json(
+        { error: isCodeConflict ? `Branch code "${cleanCode}" already exists` : `Branch name "${cleanName}" already exists` },
+        { status: 409 }
+      );
+    }
+
+    const lat =
+      latitude !== undefined && latitude !== null && latitude !== '' && !isNaN(Number(latitude))
+        ? Number(latitude)
+        : null;
+
+    const lng =
+      longitude !== undefined && longitude !== null && longitude !== '' && !isNaN(Number(longitude))
+        ? Number(longitude)
+        : null;
+
+    const rad =
+      radiusKm !== undefined && radiusKm !== null && !isNaN(Number(radiusKm))
+        ? Number(radiusKm)
+        : 50.0;
+
+    const newBranch = await prisma.branch.create({
+      data: {
+        name: cleanName,
+        code: cleanCode,
+        address: typeof address === 'string' ? address.trim() : '',
+        city: typeof city === 'string' ? city.trim() : '',
+        latitude: lat,
+        longitude: lng,
+        radiusKm: rad,
+        isActive: isActive !== false,
+      },
+    });
+
+    return NextResponse.json({ success: true, branch: newBranch }, { status: 201 });
+  } catch (error: any) {
+    console.error('Create branch error:', error);
+    return NextResponse.json(
+      { error: error?.message || 'Failed to create branch' },
+      { status: 500 }
+    );
+  }
+}
