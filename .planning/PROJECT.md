@@ -24,17 +24,8 @@ Intelligent, error-resilient lead intake and automated nearest-branch assignment
 - ✓ **ROUTE-01 / 02 / 03**: Nearest-branch routing engine via Haversine calculation with out-of-state fence and audit trail — `src/lib/location/routing.ts` (v1.0)
 - ✓ **INGEST-01 / 02 / 03**: Lead ingestion pipeline integration across Google Sheets sync, Excel upload modal, and webhooks — `src/lib/sync.ts`, `src/components/ExternalUploadModal.tsx`, `src/app/api/webhooks/lead/route.ts` (v1.0)
 - ✓ **BRCH-01 / 02 / 03 / 04 / 05 / 06**: Interactive branch dropdown in leads table & mobile cards, estimated location defaults, consultant clearance prompt, lead patch endpoint, and Superadmin audit logging with strict invisibility — `src/app/dashboard/page.tsx`, `src/app/api/leads/[id]/route.ts`, `src/app/activity/page.tsx`, `src/lib/activity.ts` (v1.1)
-
-### Active (Milestone v1.2)
-
-- [ ] **GEO-05**: Geocoding API optimization focusing strictly on Tamil Nadu using a geographic bounding box (approx. 8.08° N, 76.23° E to 13.55° N, 80.35° E) for Nominatim (`viewbox` and `bounded=1`) and Google Maps Geocoding API (`bounds` and administrative area component filter).
-- [ ] **GEO-06**: Spatial bounding validation in the tiered resolver to definitively classify resolved coordinates as within Tamil Nadu vs out-of-state.
-- [ ] **LEAD-CAT-01**: Lead categorization taxonomy separating leads into 3 operational buckets:
-  1. **Priority**: Valid lead (inside Tamil Nadu) with follow-up scheduled for today or overdue.
-  2. **Valid**: All leads inside Tamil Nadu (assigned to a dealership branch or valid TN address).
-  3. **Unassigned**: Leads outside Tamil Nadu (out-of-state) or unresolved/unassigned.
-- [ ] **LEAD-CAT-02**: Leads table UI category switcher tabs with fast switching, live category lead counts, URL synchronization, and mobile card view compatibility.
-- [ ] **LEAD-CAT-03**: Backend `/api/leads` querying, filtering, and caching support for lead categories (`category=priority|valid|unassigned|all`) ensuring correct pagination, search, sorting, and stats.
+- ✓ **GEO-05 / 06**: Tamil Nadu geocoding bounding box restriction (`[8.08, 13.55]` lat, `[76.23, 80.35]` lon) for Nominatim and Google Maps, and spatial coordinate verification in tiered resolver — `src/lib/location/geocoder.ts` (v1.2)
+- ✓ **LEAD-CAT-01 / 02 / 03 / 04 / 05**: 3-category lead taxonomy (`Priority`, `Valid`, `Unassigned`) with IST end-of-day boundary, `/api/leads?category=...` query engine with parallel stats calculation, and interactive segmented tab switcher with live badges in desktop and mobile — `src/app/api/leads/route.ts`, `src/app/dashboard/page.tsx`, `src/app/globals.css` (v1.2)
 
 ### Out of Scope
 
@@ -45,21 +36,21 @@ Intelligent, error-resilient lead intake and automated nearest-branch assignment
 
 ## Context
 
-Following Milestone v1.1, staff can interactively view and reassign branches directly in the table. However, external geocoding requests occasionally match locations outside Tamil Nadu when search terms are ambiguous. Furthermore, sales staff require segmented views to quickly prioritize today's due follow-ups while isolating out-of-state/unassigned leads from actionable Tamil Nadu leads. Milestone v1.2 restricts external geocoding to Tamil Nadu coordinates and provides an interactive 3-category lead switcher (`Priority`, `Valid`, `Unassigned`).
+With Milestones v1.0, v1.1, and v1.2 successfully completed, SGA Tata CRM has full automated nearest-branch location routing, interactive branch overrides with audit tracking, focused Tamil Nadu geographic query bounding, and responsive multi-category views (`Priority`, `Valid`, `Unassigned`, `All Leads`) across desktop and mobile.
 
 ## Constraints
 
 - **Geographic Focus**: Dealership catchment is strictly within Tamil Nadu (and Puducherry enclave). Bounding rectangle coordinates: Lat [8.08, 13.55], Lon [76.23, 80.35].
-- **Priority Definition**: Priority leads must be both inside Tamil Nadu AND have an actionable follow-up scheduled for today or overdue (`followUpDate1` or `followUpDate2` <= today's end-of-day).
-- **Zero Disruption to Existing Filters**: Category tabs must compose cleanly with search, date ranges, uploader filters, consultant filters, and sorting.
+- **Priority Definition**: Priority leads must be both inside Tamil Nadu AND have an actionable follow-up scheduled for today or overdue (`followUpDate1` or `followUpDate2` <= today's end-of-day in IST).
+- **Zero Disruption to Existing Filters**: Category tabs compose cleanly with search, date ranges, uploader filters, consultant filters, sorting, and pagination.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Geocoding Bounding Box: [8.08, 76.23] to [13.55, 80.35] | Restricts external geocoding candidate matches strictly to Tamil Nadu territory | — Pending |
-| Priority Category includes Today & Overdue follow-ups | Ensures consultants never miss overdue follow-ups alongside today's scheduled follow-ups | — Confirmed with user |
-| Category Tabs in Leads Table Header | Enables one-click switching between Priority, Valid, and Unassigned leads without navigating away | — Pending |
+| Geocoding Bounding Box: [8.08, 76.23] to [13.55, 80.35] | Restricts external geocoding candidate matches strictly to Tamil Nadu territory | ✓ Validated |
+| Priority Category includes Today & Overdue follow-ups | Ensures consultants never miss overdue follow-ups alongside today's scheduled follow-ups | ✓ Validated |
+| Category Tabs in Leads Table Header | Enables one-click switching between Priority, Valid, and Unassigned leads without navigating away | ✓ Validated |
 | Superadmin logs strictly hidden | Strict business rule: Superadmin actions must leave zero trace in audit logs | ✓ Validated |
 
 ## Evolution

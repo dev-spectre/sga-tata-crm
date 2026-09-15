@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.2 Tamil Nadu Geocoding Optimization & Multi-Category Lead Views (Shipped: 2026-09-15)
+
+**Phases completed:** 3 phases (Phases 10-12), 6 plans
+
+**Key accomplishments:**
+
+- Tamil Nadu bounding box coordinates applied to Nominatim (`viewbox`) and Google Geocoding API (`bounds`, `components`).
+- Spatial boundary validator rejecting coordinates outside Tamil Nadu as out-of-state and keeping leads unassigned.
+- 3-category lead taxonomy (`Priority`, `Valid`, `Unassigned`) with IST end-of-day boundary logic.
+- Optimized parallel stats calculation returning real-time lead counts across all categories.
+- Modern segmented category switcher tab bar rendered above leads table in desktop view and mobile card view.
+- Live badge counters, contextual scope helper hint, and seamless URL query parameter / localStorage persistence.
+
+---
+
 ## v1.1 Lead Table Interactive Branch Selection & Override (Shipped: 2026-09-15)
 
 **Phases completed:** 3 phases (Phases 7-9), 5 plans
