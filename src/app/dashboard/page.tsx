@@ -52,6 +52,8 @@ interface ConsultantItem {
   branch: string;
 }
 
+export type LeadCategory = 'all' | 'priority' | 'valid' | 'unassigned';
+
 interface Stats {
   total: number;
   notContacted?: number;
@@ -61,6 +63,12 @@ interface Stats {
   open?: number;
   closedSuccessful?: number;
   closedUnsuccessful?: number;
+  categories?: {
+    priority: number;
+    valid: number;
+    unassigned: number;
+    all: number;
+  };
 }
 
 interface Pagination {
@@ -146,7 +154,14 @@ let meUserFetchedAt = 0;
 
 export default function DashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [stats, setStats] = useState<Stats>({ total: 0, pending: 0, live: 0, lost: 0 });
+  const [stats, setStats] = useState<Stats>({
+    total: 0,
+    pending: 0,
+    live: 0,
+    lost: 0,
+    categories: { priority: 0, valid: 0, unassigned: 0, all: 0 },
+  });
+  const [category, setCategory] = useState<LeadCategory>("all");
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 });
   const [mounted, setMounted] = useState(false);
   const [searchInput, setSearchInput] = useState("");
@@ -193,6 +208,9 @@ export default function DashboardPage() {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
+        if (typeof parsed.category === "string" && ["priority", "valid", "unassigned", "all"].includes(parsed.category)) {
+          setCategory(parsed.category as LeadCategory);
+        }
         if (typeof parsed.search === "string") {
           setSearchInput(parsed.search);
           setSearch(parsed.search);
@@ -357,6 +375,11 @@ export default function DashboardPage() {
       const branchParam = urlParams.get("branch");
       const statusParam = urlParams.get("status");
       const uploaderParam = urlParams.get("uploader");
+      const categoryParam = urlParams.get("category");
+
+      if (categoryParam !== null && ["priority", "valid", "unassigned", "all"].includes(categoryParam.toLowerCase())) {
+        setCategory(categoryParam.toLowerCase() as LeadCategory);
+      }
 
       if (consultantParam !== null) {
         setConsultantFilter(consultantParam);
@@ -377,6 +400,7 @@ export default function DashboardPage() {
     try {
       const storageKey = username ? `crm_dashboard_filters_${username}` : "crm_dashboard_filters";
       const filterData = {
+        category,
         search,
         statusFilter,
         branchFilter,
@@ -395,7 +419,7 @@ export default function DashboardPage() {
     } catch (e) {
       console.error("Failed to save dashboard filters to localStorage:", e);
     }
-  }, [search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, secondaryField, secondaryOrder, mounted, username]);
+  }, [category, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, secondaryField, secondaryOrder, mounted, username]);
 
   const [loading, setLoading] = useState(true);
   const [accessRestricted, setAccessRestricted] = useState(false);
@@ -536,6 +560,7 @@ export default function DashboardPage() {
     try {
       const params = new URLSearchParams();
       params.set("primaryOrder", primaryOrder);
+      if (category && category !== "all") params.set("category", category);
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
       if (branchFilter) params.set("branch", branchFilter);
@@ -660,10 +685,11 @@ export default function DashboardPage() {
         isFetchingRef.current = false;
       }
     }
-  }, [pagination.page, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, updateBranchWindow]);
+  }, [pagination.page, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, category, updateBranchWindow]);
 
 
   const filterStateRef = useRef({
+    category,
     search,
     statusFilter,
     branchFilter,
@@ -680,6 +706,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     filterStateRef.current = {
+      category,
       search,
       statusFilter,
       branchFilter,
@@ -693,7 +720,7 @@ export default function DashboardPage() {
       limit: pagination.limit,
       total: pagination.total,
     };
-  }, [search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, pagination.page, pagination.limit, pagination.total]);
+  }, [category, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, pagination.page, pagination.limit, pagination.total]);
 
   useEffect(() => {
     fetchLeads();
@@ -709,6 +736,7 @@ export default function DashboardPage() {
         if (lastSyncTimestampRef.current) {
           checkParams.set("since", lastSyncTimestampRef.current);
         }
+        if (f.category && f.category !== "all") checkParams.set("category", f.category);
         if (f.search) checkParams.set("search", f.search);
         if (f.statusFilter) checkParams.set("status", f.statusFilter);
         if (f.branchFilter) checkParams.set("branch", f.branchFilter);
@@ -817,6 +845,7 @@ export default function DashboardPage() {
       params.set("primaryOrder", primaryOrder);
       params.set("secondaryField", secondaryField);
       params.set("secondaryOrder", secondaryOrder);
+      if (category && category !== "all") params.set("category", category);
       if (search) params.set("search", search);
       if (branchFilter) params.set("branch", branchFilter);
       if (consultantFilter) params.set("consultant", consultantFilter);
@@ -834,6 +863,21 @@ export default function DashboardPage() {
       return null;
     }
   };
+
+  const handleCategoryChange = useCallback((newCat: LeadCategory) => {
+    if (category === newCat) return;
+    setCategory(newCat);
+    setPagination(p => ({ ...p, page: 1 }));
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (newCat === "all") {
+        url.searchParams.delete("category");
+      } else {
+        url.searchParams.set("category", newCat);
+      }
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [category]);
 
   const branches = useMemo(() => {
     const branchMap = new Map<string, string>();
@@ -1940,6 +1984,97 @@ export default function DashboardPage() {
             >
               ✕ Clear Filters
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lead Category Switcher */}
+      <div className="lead-category-bar-wrapper">
+        <div className="lead-category-tabs" role="tablist" aria-label="Lead Categories">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={category === "priority"}
+            className={`lead-category-tab lead-category-tab--priority ${category === "priority" ? "active" : ""}`}
+            onClick={() => handleCategoryChange("priority")}
+            title="Valid Tamil Nadu leads with follow-up scheduled today or overdue"
+          >
+            <span className="lead-category-tab-icon">🔥</span>
+            <span className="lead-category-tab-label">Priority (Today)</span>
+            <span className="lead-category-badge">
+              {stats.categories?.priority ?? 0}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={category === "valid"}
+            className={`lead-category-tab lead-category-tab--valid ${category === "valid" ? "active" : ""}`}
+            onClick={() => handleCategoryChange("valid")}
+            title="All leads located inside Tamil Nadu"
+          >
+            <span className="lead-category-tab-icon">✓</span>
+            <span className="lead-category-tab-label">Valid (Tamil Nadu)</span>
+            <span className="lead-category-badge">
+              {stats.categories?.valid ?? 0}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={category === "unassigned"}
+            className={`lead-category-tab lead-category-tab--unassigned ${category === "unassigned" ? "active" : ""}`}
+            onClick={() => handleCategoryChange("unassigned")}
+            title="Leads outside Tamil Nadu or unassigned"
+          >
+            <span className="lead-category-tab-icon">⚠️</span>
+            <span className="lead-category-tab-label">Unassigned (Outside TN)</span>
+            <span className="lead-category-badge">
+              {stats.categories?.unassigned ?? 0}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={category === "all"}
+            className={`lead-category-tab lead-category-tab--all ${category === "all" ? "active" : ""}`}
+            onClick={() => handleCategoryChange("all")}
+            title="All leads across all categories"
+          >
+            <span className="lead-category-tab-label">All Leads</span>
+            <span className="lead-category-badge">
+              {stats.categories?.all ?? stats.total ?? 0}
+            </span>
+          </button>
+        </div>
+
+        {/* Category Scope Helper Description */}
+        <div className="lead-category-indicator">
+          {category === "priority" && (
+            <span className="lead-category-hint priority">
+              <span className="lead-category-hint-dot" />
+              Showing <strong>Tamil Nadu</strong> leads requiring immediate follow-up (Today or Overdue)
+            </span>
+          )}
+          {category === "valid" && (
+            <span className="lead-category-hint valid">
+              <span className="lead-category-hint-dot" />
+              Showing all verified leads located within <strong>Tamil Nadu</strong>
+            </span>
+          )}
+          {category === "unassigned" && (
+            <span className="lead-category-hint unassigned">
+              <span className="lead-category-hint-dot" />
+              Showing leads <strong>outside Tamil Nadu</strong> or unassigned to branches
+            </span>
+          )}
+          {category === "all" && (
+            <span className="lead-category-hint all">
+              Showing all registered leads across all regions
+            </span>
           )}
         </div>
       </div>

@@ -32,7 +32,7 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 ### Milestone v1.2: Tamil Nadu Geocoding Optimization & Multi-Category Lead Views
 - [x] **Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification** - Restrict Nominatim and Google Geocoding queries to Tamil Nadu bounding rect and enforce spatial validation in the resolver.
 - [x] **Phase 11: Backend Lead Categorization Pipeline & Category Query API** - Implement 3-category taxonomy (`priority`, `valid`, `unassigned`) and backend `/api/leads` filtering with live category counts.
-- [ ] **Phase 12: Interactive Leads Table Category Switcher & Mobile Views** - Build responsive category switcher tabs in desktop table and mobile cards with live counter badges and seamless switching.
+- [x] **Phase 12: Interactive Leads Table Category Switcher & Mobile Views** - Build responsive category switcher tabs in desktop table and mobile cards with live counter badges and seamless switching.
 
 ---
 
@@ -82,8 +82,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 12-01: Create category tab switcher component in `src/app/dashboard/page.tsx` and integrate live badge counters and client cache keys.
-- [ ] 12-02: Adapt mobile card view, test switching across all 3 categories in browser, and perform end-to-end verification.
+- [x] 12-01: Create category tab switcher component in `src/app/dashboard/page.tsx` and integrate live badge counters and client cache keys.
+- [x] 12-02: Adapt mobile card view, test switching across all 3 categories in browser, and perform end-to-end verification.
 
 ---
 
@@ -96,7 +96,7 @@ Phases execute in numeric order: 10 → 11 → 12
 |-------|----------------|--------|-----------|
 | 10. Tamil Nadu Geocoding Bounding & Spatial Verification | 2/2 | Complete | 2026-09-15 |
 | 11. Backend Lead Categorization Pipeline & Category Query API | 2/2 | Complete | 2026-09-15 |
-| 12. Interactive Leads Table Category Switcher & Mobile Views | 0/2 | Ready | — |
+| 12. Interactive Leads Table Category Switcher & Mobile Views | 2/2 | Complete | 2026-09-15 |
 
 ---
 *Roadmap defined: 2026-09-15*

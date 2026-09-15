@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     const uploadedById = searchParams.get('uploadedById');
     const source = searchParams.get('source');
     const hasFollowUp = searchParams.get('hasFollowUp') === 'true' || searchParams.get('hasFollowUp') === '1' || searchParams.get('onlyFollowUps') === 'true';
+    const category = searchParams.get('category')?.trim().toLowerCase() || 'all';
 
     // Build filter matching active user view
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,6 +31,39 @@ export async function GET(request: NextRequest) {
     let branch = branchParam;
     if (!isAdmin && currentUser?.assignedBranch) {
       branch = currentUser.assignedBranch;
+    }
+
+    if (category === 'priority') {
+      const now = new Date();
+      const istFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const istTodayStr = istFormatter.format(now);
+      const todayEndOfDay = new Date(`${istTodayStr}T23:59:59.999+05:30`);
+
+      where.AND = [
+        ...(where.AND || []),
+        { branch: { notIn: ['', 'Unassigned'] } },
+        {
+          OR: [
+            { followUpDate1: { lte: todayEndOfDay } },
+            { followUpDate2: { lte: todayEndOfDay } },
+          ],
+        },
+      ];
+    } else if (category === 'valid') {
+      where.AND = [
+        ...(where.AND || []),
+        { branch: { notIn: ['', 'Unassigned'] } },
+      ];
+    } else if (category === 'unassigned') {
+      where.AND = [
+        ...(where.AND || []),
+        { branch: { in: ['', 'Unassigned'] } },
+      ];
     }
 
     if (search) {

@@ -21,9 +21,9 @@
 
 ### Interactive UI Category Switcher & Mobile Views
 
-- [ ] **LEAD-CAT-03**: Segmented / tabbed category switcher bar above the leads table in the dashboard with one-click switching between `Priority`, `Valid (TN)`, `Unassigned (Out of State)`, and `All Leads`.
-- [ ] **LEAD-CAT-04**: Category badge counter indicators displaying live count of leads in each category (e.g. badge with number of Priority leads requiring attention today).
-- [ ] **LEAD-CAT-05**: Full URL query parameter synchronization (`?category=...`), localStorage persistence, and mobile card view compatibility.
+- [x] **LEAD-CAT-03**: Segmented / tabbed category switcher bar above the leads table in the dashboard with one-click switching between `Priority`, `Valid (TN)`, `Unassigned (Out of State)`, and `All Leads`.
+- [x] **LEAD-CAT-04**: Category badge counter indicators displaying live count of leads in each category (e.g. badge with number of Priority leads requiring attention today).
+- [x] **LEAD-CAT-05**: Full URL query parameter synchronization (`?category=...`), localStorage persistence, and mobile card view compatibility.
 
 ## Completed v1.1 Requirements
 
@@ -60,9 +60,9 @@
 | GEO-06 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Complete |
 | LEAD-CAT-01 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Complete |
 | LEAD-CAT-02 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Complete |
-| LEAD-CAT-03 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
-| LEAD-CAT-04 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
-| LEAD-CAT-05 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
+| LEAD-CAT-03 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Complete |
+| LEAD-CAT-04 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Complete |
+| LEAD-CAT-05 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Complete |
 
 **Coverage:**
 - v1.2 requirements: 5 total (grouped into 3 phases: Phases 10, 11, 12)
