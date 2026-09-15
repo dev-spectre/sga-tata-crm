@@ -14,61 +14,13 @@ export async function GET(request: NextRequest) {
       orderBy: { name: 'asc' },
     });
 
-    // If authoritative branches exist in the database, use them
-    if (dbBranches.length > 0) {
-      const branchNames = dbBranches.map((b: { name: string }) => b.name);
-      if (format === 'names') {
-        return NextResponse.json({ branches: branchNames });
-      }
-      return NextResponse.json({
-        branches: dbBranches,
-        branchNames,
-      });
-    }
-
-    // Graceful fallback for legacy dropdowns before initial branches are seeded in DB
-    const [rawLeadBranches, rawConsultants, rawUsers] = await Promise.all([
-      prisma.lead.groupBy({
-        by: ['branch'],
-        where: { branch: { not: '' } },
-      }),
-      prisma.consultant.groupBy({
-        by: ['branch'],
-        where: { branch: { not: '' } },
-      }),
-      prisma.user.groupBy({
-        by: ['assignedBranch'],
-        where: { assignedBranch: { not: null } },
-      }),
-    ]);
-
-    const branchMap = new Map<string, string>();
-    const addBranch = (raw: string | null | undefined) => {
-      if (!raw) return;
-      parseBranches(raw).forEach((clean) => {
-        if (!clean) return;
-        const key = clean.toLowerCase();
-        if (!branchMap.has(key)) {
-          branchMap.set(key, clean);
-        } else if (clean === clean.toUpperCase()) {
-          branchMap.set(key, clean);
-        }
-      });
-    };
-
-    (rawLeadBranches as { branch: string | null }[]).forEach((b) => addBranch(b.branch));
-    (rawConsultants as { branch: string | null }[]).forEach((c) => addBranch(c.branch));
-    (rawUsers as { assignedBranch: string | null }[]).forEach((u) => addBranch(u.assignedBranch));
-
-    const legacyNames = Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b));
-
+    const branchNames = dbBranches.map((b: { name: string }) => b.name);
     if (format === 'names') {
-      return NextResponse.json({ branches: legacyNames });
+      return NextResponse.json({ branches: branchNames });
     }
-
     return NextResponse.json({
-      branches: [],
-      branchNames: legacyNames,
+      branches: dbBranches,
+      branchNames,
     });
   } catch (error) {
     console.error('Branches fetch error:', error);

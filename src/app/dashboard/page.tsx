@@ -854,11 +854,8 @@ export default function DashboardPage() {
     };
 
     apiBranches.forEach(add);
-    leads.forEach(l => {
-      if (l.branch) add(l.branch);
-    });
     return Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [leads, apiBranches]);
+  }, [apiBranches]);
 
 
   const getConsultantGroupsForLead = useCallback((lead: Lead) => {
@@ -2084,6 +2081,11 @@ export default function DashboardPage() {
                                   {b}
                                 </option>
                               ))}
+                              {lead.branch && !branches.includes(lead.branch) && (
+                                <option value={lead.branch} disabled>
+                                  {lead.branch} (Legacy)
+                                </option>
+                              )}
                             </select>
                           </td>
                           <td>
@@ -2389,6 +2391,11 @@ export default function DashboardPage() {
                                 {b}
                               </option>
                             ))}
+                            {lead.branch && !branches.includes(lead.branch) && (
+                              <option value={lead.branch} disabled>
+                                {lead.branch} (Legacy)
+                              </option>
+                            )}
                           </select>
                         </div>
 
