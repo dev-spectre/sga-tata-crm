@@ -77,6 +77,35 @@ export class RateLimiter {
 // Global rate limiter singleton (1000ms delay between external geocoder requests)
 export const globalRateLimiter = new RateLimiter(1000);
 
+/**
+ * Approximate Geographic Bounding Box for Tamil Nadu (+ Puducherry enclaves).
+ * South: ~8.08° N (Kanyakumari)
+ * North: ~13.55° N (Tiruvallur border / Pulicat Lake)
+ * West:  ~76.23° E (Nilgiris / Anaimalai western borders)
+ * East:  ~80.35° E (Bay of Bengal coast / Chennai & Puducherry)
+ */
+export const TAMIL_NADU_BOUNDS = {
+  minLat: 8.08,
+  maxLat: 13.55,
+  minLon: 76.23,
+  maxLon: 80.35,
+} as const;
+
+/**
+ * Checks whether given latitude and longitude coordinates fall within
+ * the Tamil Nadu bounding rectangle.
+ */
+export function isWithinTamilNaduBounds(lat: number, lon: number): boolean {
+  if (typeof lat !== 'number' || typeof lon !== 'number') return false;
+  if (isNaN(lat) || isNaN(lon)) return false;
+  return (
+    lat >= TAMIL_NADU_BOUNDS.minLat &&
+    lat <= TAMIL_NADU_BOUNDS.maxLat &&
+    lon >= TAMIL_NADU_BOUNDS.minLon &&
+    lon <= TAMIL_NADU_BOUNDS.maxLon
+  );
+}
+
 interface ExternalGeocodeResponse {
   canonicalName: string;
   district: string;
@@ -87,12 +116,13 @@ interface ExternalGeocodeResponse {
 }
 
 /**
- * Queries OpenStreetMap Nominatim with strict application User-Agent.
+ * Queries OpenStreetMap Nominatim with strict application User-Agent
+ * and bounding box restricted strictly to Tamil Nadu.
  */
 export async function queryNominatim(query: string): Promise<ExternalGeocodeResponse | null> {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
     query
-  )}&format=json&addressdetails=1&countrycodes=in&limit=1`;
+  )}&format=json&addressdetails=1&countrycodes=in&viewbox=${TAMIL_NADU_BOUNDS.minLon},${TAMIL_NADU_BOUNDS.maxLat},${TAMIL_NADU_BOUNDS.maxLon},${TAMIL_NADU_BOUNDS.minLat}&limit=1`;
 
   const res = await fetch(url, {
     headers: {
@@ -128,15 +158,16 @@ export async function queryNominatim(query: string): Promise<ExternalGeocodeResp
 }
 
 /**
- * Queries Google Maps Geocoding API if key is available.
+ * Queries Google Maps Geocoding API with bounds and administrative area restricted to Tamil Nadu.
  */
 export async function queryGoogleGeocode(
   query: string,
   apiKey: string
 ): Promise<ExternalGeocodeResponse | null> {
+  const boundsParam = `${TAMIL_NADU_BOUNDS.minLat},${TAMIL_NADU_BOUNDS.minLon}|${TAMIL_NADU_BOUNDS.maxLat},${TAMIL_NADU_BOUNDS.maxLon}`;
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
     query
-  )}&region=in&key=${apiKey}`;
+  )}&region=in&bounds=${boundsParam}&components=country:IN|administrative_area:Tamil Nadu&key=${apiKey}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -249,7 +280,9 @@ export async function resolveLocationTiered(
       });
 
       if (cached) {
-        const isTN = isTamilNaduState(cached.state);
+        const isTN =
+          isTamilNaduState(cached.state) &&
+          isWithinTamilNaduBounds(cached.latitude, cached.longitude);
         return {
           matched: true,
           query,
@@ -298,7 +331,9 @@ export async function resolveLocationTiered(
     });
 
     if (geoResponse) {
-      const isTN = isTamilNaduState(geoResponse.state);
+      const isTN =
+        isTamilNaduState(geoResponse.state) &&
+        isWithinTamilNaduBounds(geoResponse.latitude, geoResponse.longitude);
 
       // Persist into LocationCache asynchronously to prevent repeat queries
       if (searchKey) {

@@ -8,8 +8,8 @@
 
 ### Tamil Nadu Geocoding Bounding & Spatial Verification
 
-- [ ] **GEO-05**: Optimize external geocoding API queries to focus exclusively on Tamil Nadu by applying bounding box coordinates (approx. 8.08° N, 76.23° E to 13.55° N, 80.35° E) in Nominatim (`viewbox=76.23,13.55,80.35,8.08` with `bounded=1`) and Google Geocoding API (`bounds=8.08,76.23|13.55,80.35` and `components=administrative_area:Tamil Nadu|country:IN`).
-- [ ] **GEO-06**: Strict geographic bounding and spatial verification in the tiered resolver to ensure coordinates outside the Tamil Nadu bounding rectangle are marked out-of-state and kept unassigned.
+- [x] **GEO-05**: Optimize external geocoding API queries to focus exclusively on Tamil Nadu by applying bounding box coordinates (approx. 8.08° N, 76.23° E to 13.55° N, 80.35° E) in Nominatim (`viewbox=76.23,13.55,80.35,8.08`) and Google Geocoding API (`bounds=8.08,76.23|13.55,80.35` and `components=country:IN|administrative_area:Tamil Nadu`).
+- [x] **GEO-06**: Strict geographic bounding and spatial verification in the tiered resolver to ensure coordinates outside the Tamil Nadu bounding rectangle are marked out-of-state and kept unassigned.
 
 ### Multi-Category Lead Taxonomy & Backend Filtering
 
@@ -56,8 +56,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| GEO-05 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Pending |
-| GEO-06 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Pending |
+| GEO-05 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Complete |
+| GEO-06 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Complete |
 | LEAD-CAT-01 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Pending |
 | LEAD-CAT-02 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Pending |
 | LEAD-CAT-03 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |

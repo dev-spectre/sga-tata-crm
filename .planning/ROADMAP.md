@@ -30,7 +30,7 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 - [x] **Phase 9: Superadmin Activity Log Integration & Verification**
 
 ### Milestone v1.2: Tamil Nadu Geocoding Optimization & Multi-Category Lead Views
-- [ ] **Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification** - Restrict Nominatim and Google Geocoding queries to Tamil Nadu bounding rect and enforce spatial validation in the resolver.
+- [x] **Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification** - Restrict Nominatim and Google Geocoding queries to Tamil Nadu bounding rect and enforce spatial validation in the resolver.
 - [ ] **Phase 11: Backend Lead Categorization Pipeline & Category Query API** - Implement 3-category taxonomy (`priority`, `valid`, `unassigned`) and backend `/api/leads` filtering with live category counts.
 - [ ] **Phase 12: Interactive Leads Table Category Switcher & Mobile Views** - Build responsive category switcher tabs in desktop table and mobile cards with live counter badges and seamless switching.
 
@@ -43,15 +43,15 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 **Depends on**: Phase 9
 **Requirements**: [GEO-05, GEO-06]
 **Success Criteria**:
-  1. `queryNominatim` appends `viewbox=76.23,13.55,80.35,8.08` and `bounded=1` to focus search on Tamil Nadu.
-  2. `queryGoogleGeocode` passes `bounds=8.08,76.23|13.55,80.35` and `components=administrative_area:Tamil Nadu|country:IN`.
+  1. `queryNominatim` appends `viewbox=76.23,13.55,80.35,8.08` to focus search on Tamil Nadu.
+  2. `queryGoogleGeocode` passes `bounds=8.08,76.23|13.55,80.35` and `components=country:IN|administrative_area:Tamil Nadu`.
   3. Resolver evaluates coordinates against the Tamil Nadu bounding rectangle and marks coordinates outside as `isTamilNadu: false`.
   4. Routing engine rejects coordinates outside Tamil Nadu bounding box as `out_of_state` and keeps branch unassigned.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: Update `src/lib/location/geocoder.ts` with bounding box constants, query params for Nominatim and Google Geocoder, and spatial boundary validator.
-- [ ] 10-02: Write automated test suite verifying in-state vs out-of-state location resolutions and cache behavior.
+- [x] 10-01: Update `src/lib/location/geocoder.ts` with bounding box constants, query params for Nominatim and Google Geocoder, and spatial boundary validator.
+- [x] 10-02: Write automated test suite verifying in-state vs out-of-state location resolutions and cache behavior.
 
 ### Phase 11: Backend Lead Categorization Pipeline & Category Query API
 **Goal**: Implement the 3-category lead taxonomy (`priority`, `valid`, `unassigned`) in the backend with full support in `GET /api/leads` and stats aggregation for live tab counters.
@@ -94,8 +94,8 @@ Phases execute in numeric order: 10 → 11 → 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 10. Tamil Nadu Geocoding Bounding & Spatial Verification | 0/2 | Ready | — |
-| 11. Backend Lead Categorization Pipeline & Category Query API | 0/2 | Pending | — |
+| 10. Tamil Nadu Geocoding Bounding & Spatial Verification | 2/2 | Complete | 2026-09-15 |
+| 11. Backend Lead Categorization Pipeline & Category Query API | 0/2 | Ready | — |
 | 12. Interactive Leads Table Category Switcher & Mobile Views | 0/2 | Pending | — |
 
 ---
