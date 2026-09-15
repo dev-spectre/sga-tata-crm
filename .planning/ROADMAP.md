@@ -31,7 +31,7 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 
 ### Milestone v1.2: Tamil Nadu Geocoding Optimization & Multi-Category Lead Views
 - [x] **Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification** - Restrict Nominatim and Google Geocoding queries to Tamil Nadu bounding rect and enforce spatial validation in the resolver.
-- [ ] **Phase 11: Backend Lead Categorization Pipeline & Category Query API** - Implement 3-category taxonomy (`priority`, `valid`, `unassigned`) and backend `/api/leads` filtering with live category counts.
+- [x] **Phase 11: Backend Lead Categorization Pipeline & Category Query API** - Implement 3-category taxonomy (`priority`, `valid`, `unassigned`) and backend `/api/leads` filtering with live category counts.
 - [ ] **Phase 12: Interactive Leads Table Category Switcher & Mobile Views** - Build responsive category switcher tabs in desktop table and mobile cards with live counter badges and seamless switching.
 
 ---
@@ -66,8 +66,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01: Update `src/app/api/leads/route.ts` to implement Prisma `where` clause builder for `category` and compute category stats.
-- [ ] 11-02: Automated verification script testing queries for all 3 categories, date boundary edge cases, and count totals.
+- [x] 11-01: Update `src/app/api/leads/route.ts` to implement Prisma `where` clause builder for `category` and compute category stats.
+- [x] 11-02: Automated verification script testing queries for all 3 categories, date boundary edge cases, and count totals.
 
 ### Phase 12: Interactive Leads Table Category Switcher & Mobile Views
 **Goal**: Build an interactive, polished category switcher bar above the leads table in desktop view and mobile card view, allowing staff to seamlessly switch between Priority, Valid, and Unassigned leads with live badge counts.
@@ -95,8 +95,8 @@ Phases execute in numeric order: 10 → 11 → 12
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 10. Tamil Nadu Geocoding Bounding & Spatial Verification | 2/2 | Complete | 2026-09-15 |
-| 11. Backend Lead Categorization Pipeline & Category Query API | 0/2 | Ready | — |
-| 12. Interactive Leads Table Category Switcher & Mobile Views | 0/2 | Pending | — |
+| 11. Backend Lead Categorization Pipeline & Category Query API | 2/2 | Complete | 2026-09-15 |
+| 12. Interactive Leads Table Category Switcher & Mobile Views | 0/2 | Ready | — |
 
 ---
 *Roadmap defined: 2026-09-15*

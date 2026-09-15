@@ -13,11 +13,11 @@
 
 ### Multi-Category Lead Taxonomy & Backend Filtering
 
-- [ ] **LEAD-CAT-01**: Implement 3 distinct lead categorization rules:
+- [x] **LEAD-CAT-01**: Implement 3 distinct lead categorization rules:
   1. **Priority**: Inside Tamil Nadu (valid mapped branch/location) AND scheduled for follow-up today or overdue (`followUpDate1` or `followUpDate2` <= today 23:59:59).
   2. **Valid**: All valid leads inside Tamil Nadu (assigned to a branch or with valid TN location).
   3. **Unassigned**: Leads outside Tamil Nadu (out-of-state) or unresolved/unassigned.
-- [ ] **LEAD-CAT-02**: Backend `/api/leads` query support for `category` filter (`priority`, `valid`, `unassigned`, `all`) with accurate total counts, pagination, search composability, and stats payload.
+- [x] **LEAD-CAT-02**: Backend `/api/leads` query support for `category` filter (`priority`, `valid`, `unassigned`, `all`) with accurate total counts, pagination, search composability, and stats payload.
 
 ### Interactive UI Category Switcher & Mobile Views
 
@@ -58,8 +58,8 @@
 |-------------|-------|--------|
 | GEO-05 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Complete |
 | GEO-06 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Complete |
-| LEAD-CAT-01 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Pending |
-| LEAD-CAT-02 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Pending |
+| LEAD-CAT-01 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Complete |
+| LEAD-CAT-02 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Complete |
 | LEAD-CAT-03 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
 | LEAD-CAT-04 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
 | LEAD-CAT-05 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |

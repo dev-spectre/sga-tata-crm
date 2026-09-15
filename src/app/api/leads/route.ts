@@ -304,6 +304,53 @@ export async function GET(request: NextRequest) {
         where.status = { in: Array.from(dbStatuses) };
       }
     }
+
+    // Category filter handling (priority, valid, unassigned, all)
+    const category = (searchParams.get('category') || '').trim().toLowerCase();
+
+    // Current IST end-of-day for priority follow-up calculation
+    const now = new Date();
+    const kolkataFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayDateStr = kolkataFormatter.format(now);
+    const todayEndOfDay = new Date(`${todayDateStr}T23:59:59.999+05:30`);
+
+    const validBranchCondition: any = {
+      branch: { notIn: ['', 'Unassigned'] },
+    };
+
+    const unassignedBranchCondition: any = {
+      branch: { in: ['', 'Unassigned'] },
+    };
+
+    const priorityFollowUpCondition: any = {
+      OR: [
+        { followUpDate1: { lte: todayEndOfDay, not: null } },
+        { followUpDate2: { lte: todayEndOfDay, not: null } },
+      ],
+    };
+
+    if (category === 'priority') {
+      where.AND = [
+        ...(where.AND || []),
+        validBranchCondition,
+        priorityFollowUpCondition,
+      ];
+    } else if (category === 'valid') {
+      where.AND = [
+        ...(where.AND || []),
+        validBranchCondition,
+      ];
+    } else if (category === 'unassigned') {
+      where.AND = [
+        ...(where.AND || []),
+        unassignedBranchCondition,
+      ];
+    }
     
     const skipStats = searchParams.get('skipStats') === 'true' || searchParams.get('skipStats') === '1';
     const skipActivities = searchParams.get('skipActivities') === 'true' || searchParams.get('skipActivities') === '1' || isCalendar;
@@ -353,6 +400,12 @@ export async function GET(request: NextRequest) {
     let liveLeads = 0;
     let lostLeads = 0;
     let maxUpdatedAt: string | null = null;
+    let categoryStats = {
+      priority: 0,
+      valid: 0,
+      unassigned: 0,
+      all: 0,
+    };
 
     const includeTotal = searchParams.get('includeTotal') === 'true' || Boolean(followUpDate || followUpStartDate) || !skipStats;
 
@@ -380,7 +433,15 @@ export async function GET(request: NextRequest) {
         });
       }
     } else {
-      const [dbLeads, dbTotal, statusCounts, maxAggregate] = await Promise.all([
+      const [
+        dbLeads,
+        dbTotal,
+        statusCounts,
+        maxAggregate,
+        priorityCount,
+        validCount,
+        unassignedCount,
+      ] = await Promise.all([
         prisma.lead.findMany({
           where,
           orderBy,
@@ -390,7 +451,7 @@ export async function GET(request: NextRequest) {
         }),
         prisma.lead.count({ where }),
         prisma.lead.groupBy({
-          where: status ? where : statsWhere,
+          where: status || category ? where : statsWhere,
           by: ['status'],
           _count: {
             status: true,
@@ -402,10 +463,45 @@ export async function GET(request: NextRequest) {
             updatedAt: true,
           },
         }),
+        prisma.lead.count({
+          where: {
+            ...statsWhere,
+            AND: [
+              ...(statsWhere.AND || []),
+              validBranchCondition,
+              priorityFollowUpCondition,
+            ],
+          },
+        }),
+        prisma.lead.count({
+          where: {
+            ...statsWhere,
+            AND: [
+              ...(statsWhere.AND || []),
+              validBranchCondition,
+            ],
+          },
+        }),
+        prisma.lead.count({
+          where: {
+            ...statsWhere,
+            AND: [
+              ...(statsWhere.AND || []),
+              unassignedBranchCondition,
+            ],
+          },
+        }),
       ]);
 
       leads = dbLeads;
       total = dbTotal;
+      categoryStats = {
+        priority: priorityCount,
+        valid: validCount,
+        unassigned: unassignedCount,
+        all: validCount + unassignedCount,
+      };
+
       if (maxAggregate?._max?.updatedAt) {
         maxUpdatedAt = maxAggregate._max.updatedAt.toISOString();
       }
@@ -497,6 +593,7 @@ export async function GET(request: NextRequest) {
         open: pendingLeads,
         closedSuccessful: liveLeads,
         closedUnsuccessful: lostLeads,
+        categories: categoryStats,
       },
     });
   } catch (error) {
