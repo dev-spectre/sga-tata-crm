@@ -13,7 +13,16 @@ export async function PATCH(
     const { id } = await params;
     const leadId = parseInt(id);
     const body = await request.json();
-    const { status, remark, followUpDate1, followUpDate2, assignedConsultant, testDrive } = body;
+    const {
+      status,
+      remark,
+      followUpDate1,
+      followUpDate2,
+      assignedConsultant,
+      testDrive,
+      branch,
+      clearConsultant,
+    } = body;
     
     const lead = await prisma.lead.findUnique({ where: { id: leadId } });
     if (!lead) {
@@ -43,7 +52,11 @@ export async function PATCH(
       updateData.followUpDate2 = followUpDate2 ? new Date(followUpDate2) : null;
     }
     if (assignedConsultant !== undefined) updateData.assignedConsultant = assignedConsultant;
+    if (clearConsultant === true) updateData.assignedConsultant = null;
     if (testDrive !== undefined) updateData.testDrive = testDrive;
+    if (branch !== undefined) {
+      updateData.branch = typeof branch === 'string' ? branch.trim() : '';
+    }
 
     const updatedLead = await prisma.lead.update({
       where: { id: leadId },
@@ -97,8 +110,14 @@ export async function PATCH(
           if (assignedConsultant !== undefined && mapping.assignedConsultant !== undefined) {
             updates.push({ col: mapping.assignedConsultant, value: assignedConsultant || '' });
           }
+          if (clearConsultant === true && mapping.assignedConsultant !== undefined) {
+            updates.push({ col: mapping.assignedConsultant, value: '' });
+          }
           if (testDrive !== undefined && mapping.testDrive !== undefined) {
             updates.push({ col: mapping.testDrive, value: testDrive || '' });
+          }
+          if (branch !== undefined && mapping.branch !== undefined) {
+            updates.push({ col: mapping.branch, value: updateData.branch });
           }
 
           if (updates.length > 0) {

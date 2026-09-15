@@ -12,7 +12,7 @@
 - [ ] **BRCH-02**: Default dropdown value set to the branch mapped from the estimated location of user (or "Unassigned" if unmapped/out-of-state).
 - [ ] **BRCH-03**: Any logged-in user can change the branch for a lead in both the desktop table view and mobile card view.
 - [ ] **BRCH-04**: Interactive confirmation prompt before clearing an assigned consultant when reassigning branch.
-- [ ] **BRCH-05**: Persistent database update via `PATCH /api/leads/[id]` supporting `branch` field (and optional consultant reset) with optimistic UI updates and error rollback.
+- [x] **BRCH-05**: Persistent database update via `PATCH /api/leads/[id]` supporting `branch` field (and optional consultant reset) with optimistic UI updates and error rollback.
 - [ ] **BRCH-06**: Full audit logging of branch changes into `LeadActivity` (`BRANCH_CHANGE` action) visible to Superadmin in `/activity` logs viewer, while strictly hiding Superadmin activities.
 
 ## Completed v1.0 Requirements
@@ -61,8 +61,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BRCH-05 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Pending |
-| BRCH-06 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Pending |
+| BRCH-05 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Complete |
+| BRCH-06 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Complete |
 | BRCH-01 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |
 | BRCH-02 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |
 | BRCH-03 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |

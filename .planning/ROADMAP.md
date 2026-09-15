@@ -24,7 +24,7 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 
 ### Milestone v1.1: Interactive Lead Branch Selection & Override
 
-- [ ] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline** - Extend `PATCH /api/leads/[id]` for branch updates, consultant clearance, and audit logging with Superadmin invisibility.
+- [x] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline** - Extend `PATCH /api/leads/[id]` for branch updates, consultant clearance, and audit logging with Superadmin invisibility.
 - [ ] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)** - Build dynamic branch dropdowns in desktop table and mobile cards with consultant clearance confirmation prompt.
 - [ ] **Phase 9: Superadmin Activity Log Integration & Verification** - Formatted branch change audit log presentation in `/activity` and end-to-end pipeline verification.
 
@@ -44,8 +44,8 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: Update `src/lib/activity.ts` and `src/app/api/leads/[id]/route.ts` to support branch updates, consultant clearance, and `BRANCH_CHANGE` activity logging.
-- [ ] 07-02: Write automated verification script testing branch update, consultant clearance, activity creation, and Superadmin log suppression.
+- [x] 07-01: Update `src/lib/activity.ts` and `src/app/api/leads/[id]/route.ts` to support branch updates, consultant clearance, and `BRANCH_CHANGE` activity logging.
+- [x] 07-02: Write automated verification script testing branch update, consultant clearance, activity creation, and Superadmin log suppression.
 
 ### Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)
 **Goal**: Replace static branch badges in the leads table and mobile cards with an interactive dropdown populated with all branches from the Branches tab, defaulting to the estimated mapped branch, and prompting for confirmation before clearing assigned consultants.
@@ -92,7 +92,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. Geocoding Fallback Service & Rate-Limited Location Cache | 2/2 | Complete | 2026-09-11 |
 | 5. Nearest-Branch Routing Engine | 2/2 | Complete | 2026-09-12 |
 | 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | Complete | 2026-09-12 |
-| 7. Backend Lead Branch Update & Activity Audit Pipeline | 0/2 | Pending | — |
+| 7. Backend Lead Branch Update & Activity Audit Pipeline | 2/2 | Complete | 2026-09-15 |
 | 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 0/2 | Pending | — |
 | 9. Superadmin Activity Log Integration & Verification | 0/1 | Pending | — |
 
