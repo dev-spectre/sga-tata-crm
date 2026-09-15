@@ -1,33 +1,33 @@
 ---
 gsd_state_version: '1.0'
-status: complete
-milestone: v1.0
-milestone_name: Tata Location-Based Auto Branch Assignment
+status: planning
+milestone: v1.1
+milestone_name: Lead Table Interactive Branch Selection & Override
 progress:
-  total_phases: 6
+  total_phases: 9
   completed_phases: 6
-  total_plans: 12
+  total_plans: 17
   completed_plans: 12
-  percent: 100
+  percent: 71
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-09-11)
+See: .planning/PROJECT.md (updated 2026-09-15)
 
-**Core value:** Intelligent, error-resilient lead intake and automated nearest-branch assignment ensuring rapid customer follow-up without manual sorting.
-**Current focus:** Milestone v1.0 Complete
+**Core value:** Intelligent, error-resilient lead intake and automated nearest-branch assignment ensuring rapid customer follow-up without manual sorting, paired with responsive staff branch assignment and complete audit transparency.
+**Current focus:** Milestone v1.1 Planning
 
 ## Current Position
 
-Phase: 6 of 6 (Lead Ingestion & Sync Pipeline Integration)
-Plan: 2 of 2 in current phase
-Status: Milestone Complete
-Last activity: 2026-09-12 — Phase 6 completed (Lead Ingestion & Sync Pipeline Integration)
+Phase: 7 of 9 (Backend Lead Branch Update & Activity Audit Pipeline)
+Plan: 0 of 2 in current phase
+Status: Ready to plan Phase 7
+Last activity: 2026-09-15 — Milestone v1.1 initialized
 
-Progress: [▓▓▓▓▓▓▓▓▓▓] 100%
+Progress: [▓▓▓▓▓▓▓░░░] 71%
 
 ## Performance Metrics
 
@@ -46,9 +46,12 @@ Progress: [▓▓▓▓▓▓▓▓▓▓] 100%
 | 4. Geocoding Fallback Service & Rate-Limited Location Cache | 2/2 | 6 min | 3 min |
 | 5. Nearest-Branch Routing Engine | 2/2 | 6 min | 3 min |
 | 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | 7 min | 3.5 min |
+| 7. Backend Lead Branch Update & Activity Audit Pipeline | 0/2 | — | — |
+| 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 0/2 | — | — |
+| 9. Superadmin Activity Log Integration & Verification | 0/1 | — | — |
 
 **Recent Trend:**
-- Trend: Complete
+- Milestone v1.0 complete, initialized Milestone v1.1
 
 ## Accumulated Context
 
@@ -57,6 +60,10 @@ Progress: [▓▓▓▓▓▓▓▓▓▓] 100%
 - [v1.0 Milestone]: Build an offline-first Tamil Nadu location dictionary with fuzzy matching before falling back to external geocoding API to ensure zero latency and zero API cost for standard leads.
 - [v1.0 Milestone]: Use Haversine geodesic calculation for nearest-branch mapping to keep computations fully local and instantaneous.
 - [v1.0 Milestone]: Store geocoded results in a persistent PostgreSQL `LocationCache` table to avoid repeating external queries.
+- [v1.1 Milestone]: Any logged-in staff user can reassign a lead's branch in the table to provide immediate operational flexibility.
+- [v1.1 Milestone]: If a lead already has an assigned consultant, prompt the user for confirmation before clearing the consultant upon branch switch to avoid cross-branch consultant mismatches.
+- [v1.1 Milestone]: Branch changes are logged into `LeadActivity` as `BRANCH_CHANGE` and viewable by Superadmin in `/activity` logs viewer; Superadmin actions are strictly hidden and not tracked anywhere.
+- [v1.1 Milestone]: Populate branch dropdowns dynamically from `/api/branches` with all branches created in the Branches management tab, defaulting to the auto-assigned branch from estimated user location.
 
 ### Pending Todos
 
@@ -75,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-09-11 23:09
-Stopped at: Milestone v1.0 initialized, ready for Phase 1 planning
+Last session: 2026-09-15 14:08
+Stopped at: Milestone v1.1 initialized, ready for Phase 7 planning
 Resume file: None

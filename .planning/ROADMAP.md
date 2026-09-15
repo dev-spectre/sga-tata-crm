@@ -2,13 +2,18 @@
 
 ## Overview
 
-Transition SGA Tata CRM from relying on an explicit branch column in incoming sheets to an intelligent, automated location-based nearest-branch assignment engine. This roadmap delivers a full Branches Management interface, an embedded Tamil Nadu location dictionary with fuzzy matching, rate-limited geocoding fallback with persistent caching, geodesic nearest-branch routing, and pipeline integration across Google Sheets sync, manual uploads, and webhooks.
+Transition SGA Tata CRM to an intelligent, automated location-based nearest-branch assignment engine, complemented by staff interactive branch overrides in the leads table with complete audit transparency.
+
+- **Milestone v1.0 (Phases 1-6)**: Delivered Branches Management UI, embedded Tamil Nadu location dictionary with fuzzy matching, rate-limited geocoding fallback with DB caching, geodesic nearest-branch routing, and ingestion pipeline integration.
+- **Milestone v1.1 (Phases 7-9)**: Delivers an interactive branch dropdown in the leads table (desktop and mobile) populated from the branches tab, defaulting to estimated location mapping, prompting for confirmation before clearing assigned consultants, and logging user branch changes for Superadmin review while keeping Superadmin actions strictly hidden.
 
 ## Phases
 
 **Phase Numbering:**
 - Integer phases (1, 2, 3...): Planned milestone work
 - Decimal phases (e.g. 2.1): Urgent insertions if needed
+
+### Milestone v1.0: Tata Location-Based Auto Branch Assignment
 
 - [x] **Phase 1: Branch Data Model & CRUD API** - Model branches with coordinates in Prisma and build REST endpoints.
 - [x] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
@@ -17,96 +22,67 @@ Transition SGA Tata CRM from relying on an explicit branch column in incoming sh
 - [x] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
 - [x] **Phase 6: Lead Ingestion & Sync Pipeline Integration** - Adapt Google Sheets sync, Excel upload modal, and webhooks.
 
+### Milestone v1.1: Interactive Lead Branch Selection & Override
+
+- [ ] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline** - Extend `PATCH /api/leads/[id]` for branch updates, consultant clearance, and audit logging with Superadmin invisibility.
+- [ ] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)** - Build dynamic branch dropdowns in desktop table and mobile cards with consultant clearance confirmation prompt.
+- [ ] **Phase 9: Superadmin Activity Log Integration & Verification** - Formatted branch change audit log presentation in `/activity` and end-to-end pipeline verification.
+
+---
+
 ## Phase Details
 
-### Phase 1: Branch Data Model & CRUD API
-**Goal**: Establish the foundational database schema and backend API for dealership branches with geolocation support.
-**Depends on**: Nothing (first phase)
-**Requirements**: [BRANCH-01, BRANCH-03]
+### Phase 7: Backend Lead Branch Update & Activity Audit Pipeline
+**Goal**: Allow updating a lead's branch via `PATCH /api/leads/[id]`, support atomic consultant clearance, and log branch changes in `LeadActivity` while strictly hiding Superadmin activities.
+**Depends on**: Phase 6
+**Requirements**: [BRCH-05, BRCH-06]
 **Success Criteria**:
-  1. `Branch` model exists in `prisma/schema.prisma` with `name`, `code`, `address`, `city`, `latitude`, `longitude`, `radiusKm`, and `isActive`.
-  2. Database migration runs cleanly without data loss.
-  3. `GET /api/branches`, `POST /api/branches`, `PUT /api/branches/[id]`, and `DELETE /api/branches/[id]` allow complete branch management.
+  1. `PATCH /api/leads/[id]` accepts `branch` and updates the lead in PostgreSQL.
+  2. `logLeadDiff` logs `BRANCH_CHANGE` action with old and new branch values when modified by standard users.
+  3. Superadmin branch updates leave zero log records in `LeadActivity` (`isSuperAdminUser` check strictly upheld).
+  4. Supports optional `clearConsultant: true` or explicit `assignedConsultant: null` when reassigning branch.
 **Plans**: 2 plans
 
 Plans:
-- [x] 01-01: Update Prisma schema with `Branch` model and execute migration.
-- [x] 01-02: Implement `/api/branches` and `/api/branches/[id]` route handlers with RBAC validation.
+- [ ] 07-01: Update `src/lib/activity.ts` and `src/app/api/leads/[id]/route.ts` to support branch updates, consultant clearance, and `BRANCH_CHANGE` activity logging.
+- [ ] 07-02: Write automated verification script testing branch update, consultant clearance, activity creation, and Superadmin log suppression.
 
-### Phase 2: Branches Management UI
-**Goal**: Provide dealership administrators with a dedicated UI to manage branches, input coordinates, and toggle active status.
-**Depends on**: Phase 1
-**Requirements**: [BRANCH-02]
+### Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)
+**Goal**: Replace static branch badges in the leads table and mobile cards with an interactive dropdown populated with all branches from the Branches tab, defaulting to the estimated mapped branch, and prompting for confirmation before clearing assigned consultants.
+**Depends on**: Phase 7
+**Requirements**: [BRCH-01, BRCH-02, BRCH-03, BRCH-04]
 **Success Criteria**:
-  1. Dealership staff can navigate to `/branches` via the sidebar navigation.
-  2. Users can create, update, and search branches with visual status badges (active/inactive).
-  3. Branch modal supports address and latitude/longitude input with validation.
+  1. Leads table renders an interactive branch `<select>` dropdown populated dynamically with all active branches from `/api/branches` plus "Unassigned".
+  2. Default selected branch reflects the branch auto-assigned from the lead's estimated location (or "Unassigned" if empty/out-of-state).
+  3. Any logged-in user can change the branch directly from the table.
+  4. If the lead has an assigned consultant, a confirmation modal prompts the user before clearing the consultant assignment upon branch switch.
+  5. Mobile card view features the identical interactive dropdown and confirmation prompt workflow.
+  6. Optimistic UI updates with automatic rollback and toast notifications on API failure.
 **Plans**: 2 plans
 
 Plans:
-- [x] 02-01: Build `/branches` page with branch table, search filter, and status toggle.
-- [x] 02-02: Build branch create/edit modal and integrate with sidebar navigation.
+- [ ] 08-01: Build branch dropdown component with confirmation modal for consultant clearance in desktop leads table.
+- [ ] 08-02: Integrate branch dropdown into mobile card view and wire optimistic state updates with error handling.
 
-### Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching
-**Goal**: Deliver an offline-first dictionary of Tamil Nadu locations capable of resolving cities, towns, and pincodes with typo tolerance.
-**Depends on**: Phase 2
-**Requirements**: [LOC-01, LOC-02]
+### Phase 9: Superadmin Activity Log Integration & Verification
+**Goal**: Present clean, human-readable branch change audit records in the Superadmin logs viewer (`/activity`) and perform complete end-to-end validation.
+**Depends on**: Phase 8
+**Requirements**: [BRCH-06]
 **Success Criteria**:
-  1. Embedded dataset covers all Tamil Nadu districts, major towns, taluks, and pincodes with centroid coordinates.
-  2. Fuzzy matching algorithm correctly resolves common misspellings and abbreviations (e.g. "Cbe" -> Coimbatore, "Madurei" -> Madurai).
-  3. Resolves locations in <5ms without external API dependencies.
-**Plans**: 2 plans
+  1. Superadmin viewing `/activity` sees clear `BRANCH_CHANGE` audit entries (e.g. "Branch changed from Coimbatore to Salem").
+  2. Superadmin actions are completely absent from the activity viewer and database audit records.
+  3. Full end-to-end browser and API verification of branch assignment override flow.
+**Plans**: 1 plan
 
 Plans:
-- [x] 03-01: Curate and construct the structured Tamil Nadu geographical dataset with coordinates.
-- [x] 03-02: Implement the fuzzy matching library and unit verification scripts.
+- [ ] 09-01: Update activity log UI formatting for `BRANCH_CHANGE` and run end-to-end verification.
 
-### Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache
-**Goal**: Provide resilient fallback to external geocoding when an input is not in the local dictionary, with strict rate limiting and DB caching.
-**Depends on**: Phase 3
-**Requirements**: [LOC-03, GEO-01, GEO-02, GEO-03]
-**Success Criteria**:
-  1. `LocationCache` table in PostgreSQL caches query string, latitude, longitude, and source.
-  2. External geocoding service requests are throttled and queued to prevent quota exhaustion.
-  3. Cached locations return instantly without hitting the external geocoding API.
-**Plans**: 2 plans
-
-Plans:
-- [x] 04-01: Create `LocationCache` Prisma model and migration.
-- [x] 04-02: Implement rate-limited geocoding client with fallback cascade (Cache -> Geocoder -> Persist).
-
-### Phase 5: Nearest-Branch Routing Engine
-**Goal**: Automatically compute geodesic distances and assign incoming leads to the closest operational branch.
-**Depends on**: Phase 4
-**Requirements**: [ROUTE-01, ROUTE-02, ROUTE-03]
-**Success Criteria**:
-  1. Haversine formula correctly calculates distance in km between lead coordinates and branch coordinates.
-  2. Resolves closest active branch and sets `lead.branch`.
-  3. Records routing decision and distance in `LeadActivity` audit log.
-**Plans**: 2 plans
-
-Plans:
-- [x] 05-01: Implement Haversine math module and branch distance ranking logic.
-- [x] 05-02: Implement `assignNearestBranch(lead)` service with audit trail logging.
-
-### Phase 6: Lead Ingestion & Sync Pipeline Integration
-**Goal**: Connect the routing engine into the live sync and import workflows, removing hardcoded branch dependencies.
-**Depends on**: Phase 5
-**Requirements**: [INGEST-01, INGEST-02, INGEST-03]
-**Success Criteria**:
-  1. Google Sheets sync (`src/lib/sync.ts`) successfully ingests Tata sheets without a branch column, mapping city/zipcode to branch.
-  2. External Excel upload modal allows importing leads without a branch column and automatically assigns nearest branch.
-  3. Webhook `/api/webhooks/lead` automatically routes leads to the closest branch.
-**Plans**: 2 plans
-
-Plans:
-- [x] 06-01: Update Google Sheets sync engine and column mapping logic.
-- [x] 06-02: Update external upload modal and lead webhook ingestion handlers.
+---
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -116,3 +92,10 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 4. Geocoding Fallback Service & Rate-Limited Location Cache | 2/2 | Complete | 2026-09-11 |
 | 5. Nearest-Branch Routing Engine | 2/2 | Complete | 2026-09-12 |
 | 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | Complete | 2026-09-12 |
+| 7. Backend Lead Branch Update & Activity Audit Pipeline | 0/2 | Pending | — |
+| 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 0/2 | Pending | — |
+| 9. Superadmin Activity Log Integration & Verification | 0/1 | Pending | — |
+
+---
+*Roadmap defined: 2026-09-11*
+*Milestone v1.1 added: 2026-09-15*
