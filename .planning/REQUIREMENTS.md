@@ -1,13 +1,33 @@
 # Requirements: SGA Tata CRM
 
 **Defined:** 2026-09-15
-**Milestone:** v1.1
-**Core Value:** Intelligent, error-resilient lead intake and automated nearest-branch assignment ensuring rapid customer follow-up without manual sorting, paired with responsive staff branch assignment and complete audit transparency.
+**Milestone:** v1.2
+**Core Value:** Intelligent, error-resilient lead intake and automated nearest-branch assignment ensuring rapid customer follow-up without manual sorting, paired with responsive staff branch assignment, focused Tamil Nadu geographic routing, and multi-category lead views with complete audit transparency.
 
-## v1.1 Requirements
+## v1.2 Requirements
+
+### Tamil Nadu Geocoding Bounding & Spatial Verification
+
+- [ ] **GEO-05**: Optimize external geocoding API queries to focus exclusively on Tamil Nadu by applying bounding box coordinates (approx. 8.08° N, 76.23° E to 13.55° N, 80.35° E) in Nominatim (`viewbox=76.23,13.55,80.35,8.08` with `bounded=1`) and Google Geocoding API (`bounds=8.08,76.23|13.55,80.35` and `components=administrative_area:Tamil Nadu|country:IN`).
+- [ ] **GEO-06**: Strict geographic bounding and spatial verification in the tiered resolver to ensure coordinates outside the Tamil Nadu bounding rectangle are marked out-of-state and kept unassigned.
+
+### Multi-Category Lead Taxonomy & Backend Filtering
+
+- [ ] **LEAD-CAT-01**: Implement 3 distinct lead categorization rules:
+  1. **Priority**: Inside Tamil Nadu (valid mapped branch/location) AND scheduled for follow-up today or overdue (`followUpDate1` or `followUpDate2` <= today 23:59:59).
+  2. **Valid**: All valid leads inside Tamil Nadu (assigned to a branch or with valid TN location).
+  3. **Unassigned**: Leads outside Tamil Nadu (out-of-state) or unresolved/unassigned.
+- [ ] **LEAD-CAT-02**: Backend `/api/leads` query support for `category` filter (`priority`, `valid`, `unassigned`, `all`) with accurate total counts, pagination, search composability, and stats payload.
+
+### Interactive UI Category Switcher & Mobile Views
+
+- [ ] **LEAD-CAT-03**: Segmented / tabbed category switcher bar above the leads table in the dashboard with one-click switching between `Priority`, `Valid (TN)`, `Unassigned (Out of State)`, and `All Leads`.
+- [ ] **LEAD-CAT-04**: Category badge counter indicators displaying live count of leads in each category (e.g. badge with number of Priority leads requiring attention today).
+- [ ] **LEAD-CAT-05**: Full URL query parameter synchronization (`?category=...`), localStorage persistence, and mobile card view compatibility.
+
+## Completed v1.1 Requirements
 
 ### Interactive Branch Selection & Override
-
 - [x] **BRCH-01**: Interactive branch dropdown in the leads table populated with all active branches registered in the `/branches` management tab.
 - [x] **BRCH-02**: Default dropdown value set to the branch mapped from the estimated location of user (or "Unassigned" if unmapped/out-of-state).
 - [x] **BRCH-03**: Any logged-in user can change the branch for a lead in both the desktop table view and mobile card view.
@@ -17,63 +37,38 @@
 
 ## Completed v1.0 Requirements
 
-### Branches Management
-- [x] **BRANCH-01**: Prisma schema defines `Branch` model with `name`, `code`, `address`, `city`, `latitude`, `longitude`, `radiusKm`, and `isActive` status.
-- [x] **BRANCH-02**: Dedicated Branches Management view (`/branches`) in the dashboard navigation to view, create, edit, and toggle active status of branches.
-- [x] **BRANCH-03**: Backend API endpoints (`/api/branches`, `/api/branches/[id]`) supporting full CRUD operations with role-based validation.
-
-### Location Knowledge & Fuzzy Matching
-- [x] **LOC-01**: Embedded Tamil Nadu geographical dictionary containing major cities, towns, taluks, and common pincodes with pre-calculated centroid coordinates.
-- [x] **LOC-02**: Fast, typo-tolerant fuzzy string matching to map misspellings, colloquial names, and partial city strings to canonical locations without network calls.
-- [x] **LOC-03**: Persistent PostgreSQL location cache (`LocationCache` model) storing sanitized search terms, latitude, longitude, canonical name, and source.
-
-### Geocoding Fallback & Resilience
-- [x] **GEO-01**: External geocoding service integration (Google Maps Geocoding API / Nominatim fallback) invoked only when local dictionary matching fails.
-- [x] **GEO-02**: Strict client-side rate limiting (queueing and throttling) on geocoding requests to prevent rate limit exhaustion and unexpected costs.
-- [x] **GEO-03**: Immediate caching of successfully resolved geocodes into `LocationCache` to ensure zero repeat API calls for previously resolved locations.
-
-### Nearest Branch Routing Engine
-- [x] **ROUTE-01**: Geodesic distance engine using Haversine formula to compute distances in kilometers between lead coordinates and all operational branches.
-- [x] **ROUTE-02**: Automated branch resolver assigning incoming leads to the geographically nearest active branch.
-- [x] **ROUTE-03**: Audit log entry in `LeadActivity` recording the resolved location, distance to assigned branch, and matching method (dictionary, cache, or geocoder).
-
-### Lead Ingestion & Sheet Sync Adaptation
-- [x] **INGEST-01**: Update Google Sheets column mapping and sync logic (`src/lib/sync.ts`) to remove branch column requirement and ingest location (city) and optional zipcode.
-- [x] **INGEST-02**: Update manual Excel/CSV external upload modal (`src/components/ExternalUploadModal.tsx`) to trigger auto-branch assignment for uploaded rows lacking branch data.
-- [x] **INGEST-03**: Inbound direct lead webhook (`/api/webhooks/lead`) automatically triggers location resolution and nearest branch assignment.
-
-## Future Requirements (Backlog)
-
-### Advanced Logistics & Redistribution
-- **ROUTE-04**: Dynamic capacity balancing (round-robin or lead cap per branch when a primary branch is overloaded).
-- **GEO-04**: Map visualization in dashboard showing lead geographical clustering and branch catchment zones.
-- **NOTF-05**: Immediate consultant push notification when a lead is assigned via auto-routing.
+### Branches Management & Location Routing
+- [x] **BRANCH-01 / 02 / 03**: Prisma schema, `/branches` management UI, and CRUD API.
+- [x] **LOC-01 / 02 / 03**: Embedded TN location knowledge base, fuzzy matching, and persistent DB cache.
+- [x] **GEO-01 / 02 / 03**: External geocoder fallback, rate limiting, and caching.
+- [x] **ROUTE-01 / 02 / 03**: Nearest-branch routing engine via Haversine calculation with audit trail.
+- [x] **INGEST-01 / 02 / 03**: Lead ingestion pipeline integration across Google Sheets sync, Excel upload, and webhooks.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
+| Multi-state branches | SGA Tata operations are strictly within Tamil Nadu |
 | Real-time GPS transit tracking | Out of scope for sales lead CRM intake |
 | Driving distance matrix API | Haversine distance is sufficient and avoids heavy per-call API billing |
-| Multi-state dictionary | Tata dealership operations are scoped specifically to Tamil Nadu |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BRCH-05 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Complete |
-| BRCH-06 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Complete |
-| BRCH-01 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
-| BRCH-02 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
-| BRCH-03 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
-| BRCH-04 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
-| BRCH-06 | Phase 9: Superadmin Activity Log Integration & Verification | Complete |
+| GEO-05 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Pending |
+| GEO-06 | Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification | Pending |
+| LEAD-CAT-01 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Pending |
+| LEAD-CAT-02 | Phase 11: Backend Lead Categorization Pipeline & Category Query API | Pending |
+| LEAD-CAT-03 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
+| LEAD-CAT-04 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
+| LEAD-CAT-05 | Phase 12: Interactive Leads Table Category Switcher & Mobile Views | Pending |
 
 **Coverage:**
-- v1.1 requirements: 6 total
-- Mapped to phases: 6
+- v1.2 requirements: 5 total (grouped into 3 phases: Phases 10, 11, 12)
+- Mapped to phases: 5
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-09-15*
-*Last updated: 2026-09-15 after milestone v1.1 definition*
+*Milestone: v1.2*

@@ -2,100 +2,102 @@
 
 ## Overview
 
-Transition SGA Tata CRM to an intelligent, automated location-based nearest-branch assignment engine, complemented by staff interactive branch overrides in the leads table with complete audit transparency.
+Transition SGA Tata CRM to an intelligent, automated location-based nearest-branch assignment engine, complemented by staff interactive branch overrides, Tamil Nadu geocoding bounding optimization, and 3-category lead management views (`Priority`, `Valid`, `Unassigned`).
 
 - **Milestone v1.0 (Phases 1-6)**: Delivered Branches Management UI, embedded Tamil Nadu location dictionary with fuzzy matching, rate-limited geocoding fallback with DB caching, geodesic nearest-branch routing, and ingestion pipeline integration.
-- **Milestone v1.1 (Phases 7-9)**: Delivers an interactive branch dropdown in the leads table (desktop and mobile) populated from the branches tab, defaulting to estimated location mapping, prompting for confirmation before clearing assigned consultants, and logging user branch changes for Superadmin review while keeping Superadmin actions strictly hidden.
+- **Milestone v1.1 (Phases 7-9)**: Delivered interactive branch dropdown in leads table (desktop and mobile) populated from the branches tab, defaulting to estimated location mapping, consultant clearance safeguard, and Superadmin activity audit logging.
+- **Milestone v1.2 (Phases 10-12)**: Delivers Tamil Nadu geocoding bounding optimization (`bounds` / `viewbox`), spatial boundary validation, and a 3-category lead switcher (`Priority`, `Valid`, `Unassigned`) with live badge counts, quick switching, and full mobile support.
 
 ## Phases
 
 **Phase Numbering:**
 - Integer phases (1, 2, 3...): Planned milestone work
-- Decimal phases (e.g. 2.1): Urgent insertions if needed
+- Decimal phases (e.g. 10.1): Urgent insertions if needed
 
 ### Milestone v1.0: Tata Location-Based Auto Branch Assignment
-
-- [x] **Phase 1: Branch Data Model & CRUD API** - Model branches with coordinates in Prisma and build REST endpoints.
-- [x] **Phase 2: Branches Management UI** - Create dedicated `/branches` dashboard view and navigation link.
-- [x] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching** - Embedded TN cities/towns/pincodes with typo-tolerant matcher.
-- [x] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache** - External geocoding integration with rate limiting and DB caching.
-- [x] **Phase 5: Nearest-Branch Routing Engine** - Haversine distance calculations and automated lead branch routing.
-- [x] **Phase 6: Lead Ingestion & Sync Pipeline Integration** - Adapt Google Sheets sync, Excel upload modal, and webhooks.
+*(Completed 2026-09-12 — archived to `.planning/milestones/v1.0-phases/`)*
+- [x] **Phase 1: Branch Data Model & CRUD API**
+- [x] **Phase 2: Branches Management UI**
+- [x] **Phase 3: Tamil Nadu Location Knowledge Base & Fuzzy Matching**
+- [x] **Phase 4: Geocoding Fallback Service & Rate-Limited Location Cache**
+- [x] **Phase 5: Nearest-Branch Routing Engine**
+- [x] **Phase 6: Lead Ingestion & Sync Pipeline Integration**
 
 ### Milestone v1.1: Interactive Lead Branch Selection & Override
+*(Completed 2026-09-15 — archived to `.planning/milestones/v1.1-phases/`)*
+- [x] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline**
+- [x] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)**
+- [x] **Phase 9: Superadmin Activity Log Integration & Verification**
 
-- [x] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline** - Extend `PATCH /api/leads/[id]` for branch updates, consultant clearance, and audit logging with Superadmin invisibility.
-- [x] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)** - Build dynamic branch dropdowns in desktop table and mobile cards with consultant clearance confirmation prompt.
-- [x] **Phase 9: Superadmin Activity Log Integration & Verification** - Formatted branch change audit log presentation in `/activity` and end-to-end pipeline verification.
+### Milestone v1.2: Tamil Nadu Geocoding Optimization & Multi-Category Lead Views
+- [ ] **Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification** - Restrict Nominatim and Google Geocoding queries to Tamil Nadu bounding rect and enforce spatial validation in the resolver.
+- [ ] **Phase 11: Backend Lead Categorization Pipeline & Category Query API** - Implement 3-category taxonomy (`priority`, `valid`, `unassigned`) and backend `/api/leads` filtering with live category counts.
+- [ ] **Phase 12: Interactive Leads Table Category Switcher & Mobile Views** - Build responsive category switcher tabs in desktop table and mobile cards with live counter badges and seamless switching.
 
 ---
 
 ## Phase Details
 
-### Phase 7: Backend Lead Branch Update & Activity Audit Pipeline
-**Goal**: Allow updating a lead's branch via `PATCH /api/leads/[id]`, support atomic consultant clearance, and log branch changes in `LeadActivity` while strictly hiding Superadmin activities.
-**Depends on**: Phase 6
-**Requirements**: [BRCH-05, BRCH-06]
+### Phase 10: Tamil Nadu Geocoding Bounding & Spatial Verification
+**Goal**: Restrict external geocoding queries strictly to Tamil Nadu using bounding rectangle parameters (approx. 8.08° N, 76.23° E to 13.55° N, 80.35° E) for Nominatim (`viewbox`, `bounded=1`) and Google Maps (`bounds`, `components`), and add spatial coordinate verification in the tiered resolver to ensure out-of-state leads remain unassigned.
+**Depends on**: Phase 9
+**Requirements**: [GEO-05, GEO-06]
 **Success Criteria**:
-  1. `PATCH /api/leads/[id]` accepts `branch` and updates the lead in PostgreSQL.
-  2. `logLeadDiff` logs `BRANCH_CHANGE` action with old and new branch values when modified by standard users.
-  3. Superadmin branch updates leave zero log records in `LeadActivity` (`isSuperAdminUser` check strictly upheld).
-  4. Supports optional `clearConsultant: true` or explicit `assignedConsultant: null` when reassigning branch.
+  1. `queryNominatim` appends `viewbox=76.23,13.55,80.35,8.08` and `bounded=1` to focus search on Tamil Nadu.
+  2. `queryGoogleGeocode` passes `bounds=8.08,76.23|13.55,80.35` and `components=administrative_area:Tamil Nadu|country:IN`.
+  3. Resolver evaluates coordinates against the Tamil Nadu bounding rectangle and marks coordinates outside as `isTamilNadu: false`.
+  4. Routing engine rejects coordinates outside Tamil Nadu bounding box as `out_of_state` and keeps branch unassigned.
 **Plans**: 2 plans
 
 Plans:
-- [x] 07-01: Update `src/lib/activity.ts` and `src/app/api/leads/[id]/route.ts` to support branch updates, consultant clearance, and `BRANCH_CHANGE` activity logging.
-- [x] 07-02: Write automated verification script testing branch update, consultant clearance, activity creation, and Superadmin log suppression.
+- [ ] 10-01: Update `src/lib/location/geocoder.ts` with bounding box constants, query params for Nominatim and Google Geocoder, and spatial boundary validator.
+- [ ] 10-02: Write automated test suite verifying in-state vs out-of-state location resolutions and cache behavior.
 
-### Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)
-**Goal**: Replace static branch badges in the leads table and mobile cards with an interactive dropdown populated with all branches from the Branches tab, defaulting to the estimated mapped branch, and prompting for confirmation before clearing assigned consultants.
-**Depends on**: Phase 7
-**Requirements**: [BRCH-01, BRCH-02, BRCH-03, BRCH-04]
+### Phase 11: Backend Lead Categorization Pipeline & Category Query API
+**Goal**: Implement the 3-category lead taxonomy (`priority`, `valid`, `unassigned`) in the backend with full support in `GET /api/leads` and stats aggregation for live tab counters.
+**Depends on**: Phase 10
+**Requirements**: [LEAD-CAT-01, LEAD-CAT-02]
 **Success Criteria**:
-  1. Leads table renders an interactive branch `<select>` dropdown populated dynamically with all active branches from `/api/branches` plus "Unassigned".
-  2. Default selected branch reflects the branch auto-assigned from the lead's estimated location (or "Unassigned" if empty/out-of-state).
-  3. Any logged-in user can change the branch directly from the table.
-  4. If the lead has an assigned consultant, a confirmation modal prompts the user before clearing the consultant assignment upon branch switch.
-  5. Mobile card view features the identical interactive dropdown and confirmation prompt workflow.
-  6. Optimistic UI updates with automatic rollback and toast notifications on API failure.
+  1. `GET /api/leads?category=priority` returns leads located inside Tamil Nadu with follow-up scheduled for today or overdue (`followUpDate1` or `followUpDate2` <= today 23:59:59 IST).
+  2. `GET /api/leads?category=valid` returns all valid leads inside Tamil Nadu (assigned to a dealership branch or valid TN location).
+  3. `GET /api/leads?category=unassigned` returns leads outside Tamil Nadu (out-of-state) or unresolved/unassigned.
+  4. Category counts (`priority`, `valid`, `unassigned`, `all`) returned in `/api/leads` stats for live badge rendering without extra round-trips.
+  5. Category filtering composes cleanly with text search, date filters, consultant filters, and pagination.
 **Plans**: 2 plans
 
 Plans:
-- [x] 08-01: Build branch dropdown component with confirmation modal for consultant clearance in desktop leads table.
-- [x] 08-02: Integrate branch dropdown into mobile card view and wire optimistic state updates with error handling.
+- [ ] 11-01: Update `src/app/api/leads/route.ts` to implement Prisma `where` clause builder for `category` and compute category stats.
+- [ ] 11-02: Automated verification script testing queries for all 3 categories, date boundary edge cases, and count totals.
 
-### Phase 9: Superadmin Activity Log Integration & Verification
-**Goal**: Present clean, human-readable branch change audit records in the Superadmin logs viewer (`/activity`) and perform complete end-to-end validation.
-**Depends on**: Phase 8
-**Requirements**: [BRCH-06]
+### Phase 12: Interactive Leads Table Category Switcher & Mobile Views
+**Goal**: Build an interactive, polished category switcher bar above the leads table in desktop view and mobile card view, allowing staff to seamlessly switch between Priority, Valid, and Unassigned leads with live badge counts.
+**Depends on**: Phase 11
+**Requirements**: [LEAD-CAT-03, LEAD-CAT-04, LEAD-CAT-05]
 **Success Criteria**:
-  1. Superadmin viewing `/activity` sees clear `BRANCH_CHANGE` audit entries (e.g. "Branch changed from Coimbatore to Salem").
-  2. Superadmin actions are completely absent from the activity viewer and database audit records.
-  3. Full end-to-end browser and API verification of branch assignment override flow.
-**Plans**: 1 plan
+  1. Dashboard leads table renders a category tab bar (`Priority (Follow-up Today)`, `Valid (Tamil Nadu)`, `Unassigned (Out of State)`, `All Leads`).
+  2. Each tab displays a live counter badge reflecting the count of leads in that category.
+  3. Clicking a tab filters the leads list instantly, updates pagination to page 1, and synchronizes URL query params.
+  4. Mobile card view includes the category switcher with full touch responsiveness.
+  5. Category preference persists across reloads via localStorage / URL params.
+**Plans**: 2 plans
 
 Plans:
-- [x] 09-01: Update activity log UI formatting for `BRANCH_CHANGE` and run end-to-end verification.
+- [ ] 12-01: Create category tab switcher component in `src/app/dashboard/page.tsx` and integrate live badge counters and client cache keys.
+- [ ] 12-02: Adapt mobile card view, test switching across all 3 categories in browser, and perform end-to-end verification.
 
 ---
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+Phases execute in numeric order: 10 → 11 → 12
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Branch Data Model & CRUD API | 2/2 | Complete | 2026-09-11 |
-| 2. Branches Management UI | 2/2 | Complete | 2026-09-11 |
-| 3. Tamil Nadu Location Knowledge Base & Fuzzy Matching | 2/2 | Complete | 2026-09-11 |
-| 4. Geocoding Fallback Service & Rate-Limited Location Cache | 2/2 | Complete | 2026-09-11 |
-| 5. Nearest-Branch Routing Engine | 2/2 | Complete | 2026-09-12 |
-| 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | Complete | 2026-09-12 |
-| 7. Backend Lead Branch Update & Activity Audit Pipeline | 2/2 | Complete | 2026-09-15 |
-| 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 2/2 | Complete | 2026-09-15 |
-| 9. Superadmin Activity Log Integration & Verification | 1/1 | Complete | 2026-09-15 |
+| 10. Tamil Nadu Geocoding Bounding & Spatial Verification | 0/2 | Ready | — |
+| 11. Backend Lead Categorization Pipeline & Category Query API | 0/2 | Pending | — |
+| 12. Interactive Leads Table Category Switcher & Mobile Views | 0/2 | Pending | — |
 
 ---
-*Roadmap defined: 2026-09-11*
-*Milestone v1.1 added: 2026-09-15*
+*Roadmap defined: 2026-09-15*
+*Milestone: v1.2*
