@@ -25,7 +25,7 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 ### Milestone v1.1: Interactive Lead Branch Selection & Override
 
 - [x] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline** - Extend `PATCH /api/leads/[id]` for branch updates, consultant clearance, and audit logging with Superadmin invisibility.
-- [ ] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)** - Build dynamic branch dropdowns in desktop table and mobile cards with consultant clearance confirmation prompt.
+- [x] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)** - Build dynamic branch dropdowns in desktop table and mobile cards with consultant clearance confirmation prompt.
 - [ ] **Phase 9: Superadmin Activity Log Integration & Verification** - Formatted branch change audit log presentation in `/activity` and end-to-end pipeline verification.
 
 ---
@@ -61,8 +61,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: Build branch dropdown component with confirmation modal for consultant clearance in desktop leads table.
-- [ ] 08-02: Integrate branch dropdown into mobile card view and wire optimistic state updates with error handling.
+- [x] 08-01: Build branch dropdown component with confirmation modal for consultant clearance in desktop leads table.
+- [x] 08-02: Integrate branch dropdown into mobile card view and wire optimistic state updates with error handling.
 
 ### Phase 9: Superadmin Activity Log Integration & Verification
 **Goal**: Present clean, human-readable branch change audit records in the Superadmin logs viewer (`/activity`) and perform complete end-to-end validation.
@@ -93,7 +93,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. Nearest-Branch Routing Engine | 2/2 | Complete | 2026-09-12 |
 | 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | Complete | 2026-09-12 |
 | 7. Backend Lead Branch Update & Activity Audit Pipeline | 2/2 | Complete | 2026-09-15 |
-| 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 0/2 | Pending | — |
+| 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 2/2 | Complete | 2026-09-15 |
 | 9. Superadmin Activity Log Integration & Verification | 0/1 | Pending | — |
 
 ---

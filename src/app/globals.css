@@ -1,10 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  --primary: #10b981;
-  --primary-light: #34d399;
-  --primary-dark: #059669;
-  --primary-glow: rgba(16, 185, 129, 0.3);
+  --primary: #0072bc;
+  --primary-light: #2563eb;
+  --primary-dark: #005086;
+  --primary-glow: rgba(0, 114, 188, 0.3);
   --bg-darkest: #ffffff;
   --bg-dark: #f8fafc;
   --bg-card: rgba(255, 255, 255, 0.7);
@@ -23,7 +23,7 @@
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
-  --shadow-glow: 0 0 20px rgba(16, 185, 129, 0.15);
+  --shadow-glow: 0 0 20px rgba(0, 114, 188, 0.15);
 }
 
 *, *::before, *::after {
@@ -83,8 +83,8 @@ body::before {
   position: fixed;
   inset: 0;
   background: linear-gradient(135deg, 
-      rgba(16, 185, 129, 0.15) 0%, 
-      rgba(16, 185, 129, 0.05) 45%, 
+      rgba(0, 114, 188, 0.12) 0%, 
+      rgba(0, 114, 188, 0.04) 45%, 
       #ffffff 50%, 
       #f1f5f9 80%,
       #e2e8f0 100%
@@ -175,9 +175,9 @@ body::before {
 }
 .sidebar-link:hover { background: var(--bg-card-hover); color: var(--text-primary); }
 .sidebar-link.active {
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--primary-light);
-  border-color: var(--border);
+  background: rgba(0, 114, 188, 0.10);
+  color: var(--primary);
+  border-color: rgba(0, 114, 188, 0.2);
   box-shadow: var(--shadow-glow);
 }
 .sidebar-link svg { width: 20px; height: 20px; flex-shrink: 0; }
@@ -270,7 +270,7 @@ body::before {
 }
 .filter-bar input:focus, .filter-bar select:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129,0.15);
+  box-shadow: 0 0 0 3px rgba(0, 114, 188, 0.15);
 }
 .filter-bar input { flex: 1; min-width: 180px; max-width: 100%; }
 .filter-bar select { min-width: 140px; max-width: 100%; }
@@ -288,9 +288,9 @@ body::before {
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   color: #ffffff;
-  box-shadow: 0 4px 15px rgba(16, 185, 129,0.3);
+  box-shadow: 0 4px 15px rgba(0, 114, 188, 0.3);
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16, 185, 129,0.4); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0, 114, 188, 0.4); }
 .btn-primary:active { transform: translateY(0); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 .btn-ghost {
@@ -367,7 +367,7 @@ thead th {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   border-bottom: 1px solid var(--border);
-  background: rgba(16, 185, 129,0.03);
+  background: rgba(0, 114, 188, 0.03);
   white-space: nowrap;
 }
 tbody td {
@@ -432,7 +432,7 @@ select option {
 
 select:focus, select:hover {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
+  box-shadow: 0 0 0 3px rgba(0, 114, 188, 0.15) !important;
 }
 
 /* Status Dropdown */
@@ -511,6 +511,43 @@ select:focus, select:hover {
   font-weight: 600 !important;
 }
 
+/* Branch Dropdown */
+.branch-select {
+  padding: 5px 10px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border, #cbd5e1) !important;
+  background-color: var(--card-bg, #ffffff) !important;
+  color: var(--text-primary, #0f172a) !important;
+  max-width: 140px;
+}
+
+.branch-select:hover:not(:disabled) {
+  border-color: var(--primary, #0072bc) !important;
+  box-shadow: 0 1px 3px rgba(0, 114, 188, 0.1) !important;
+}
+
+.branch-select:focus {
+  border-color: var(--primary, #0072bc) !important;
+  box-shadow: 0 0 0 2px rgba(0, 114, 188, 0.2) !important;
+}
+
+.branch-select.branch-unassigned {
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #dc2626 !important;
+  background-color: rgba(239, 68, 68, 0.06) !important;
+}
+
+.branch-select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  font-weight: 500 !important;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed; inset: 0;
@@ -561,7 +598,7 @@ select:focus, select:hover {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 30%, rgba(16, 185, 129, 0.12) 0%, transparent 70%);
+  background: radial-gradient(circle at 50% 30%, rgba(0, 114, 188, 0.12) 0%, transparent 70%);
   pointer-events: none;
 }
 .login-card {
@@ -612,7 +649,7 @@ select:focus, select:hover {
   transition: all 0.2s;
   box-sizing: border-box;
 }
-.form-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+.form-group input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0, 114, 188, 0.15); }
 .login-btn {
   width: 100%;
   padding: 14px;
@@ -625,10 +662,10 @@ select:focus, select:hover {
   cursor: pointer;
   transition: all 0.2s;
   font-family: inherit;
-  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 114, 188, 0.3);
   box-sizing: border-box;
 }
-.login-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 25px rgba(16, 185, 129, 0.4); }
+.login-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 25px rgba(0, 114, 188, 0.4); }
 .login-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 .login-error { color: var(--danger); font-size: 14px; text-align: center; margin-bottom: 16px; animation: fadeIn 0.3s; }
 .login-logo-wrap { text-align: center; margin-bottom: 24px; }
@@ -644,7 +681,7 @@ select:focus, select:hover {
   font-size: 28px;
   font-weight: 900;
   color: #ffffff;
-  box-shadow: 0 8px 32px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 114, 188, 0.3);
 }
 
 /* Settings */
@@ -681,10 +718,10 @@ select:focus, select:hover {
 .connected-badge {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 8px 16px;
-  background: rgba(16, 185, 129,0.1);
-  border: 1px solid rgba(16, 185, 129,0.3);
+  background: rgba(0, 114, 188, 0.08);
+  border: 1px solid rgba(0, 114, 188, 0.25);
   border-radius: var(--radius-sm);
-  color: var(--primary-light);
+  color: var(--primary);
   font-size: 14px; font-weight: 500;
 }
 .connected-badge::before {
@@ -735,15 +772,15 @@ select:focus, select:hover {
 }
 .add-remark-btn {
   padding: 4px 10px;
-  background: rgba(16, 185, 129,0.1);
+  background: rgba(0, 114, 188, 0.08);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  color: var(--primary-light);
+  color: var(--primary);
   font-size: 12px; font-weight: 500;
   cursor: pointer; transition: all 0.2s;
   font-family: inherit;
 }
-.add-remark-btn:hover { background: rgba(16, 185, 129,0.2); border-color: var(--primary); }
+.add-remark-btn:hover { background: rgba(0, 114, 188, 0.16); border-color: var(--primary); }
 
 /* Toast */
 .toast {

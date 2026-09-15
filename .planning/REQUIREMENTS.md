@@ -8,10 +8,10 @@
 
 ### Interactive Branch Selection & Override
 
-- [ ] **BRCH-01**: Interactive branch dropdown in the leads table populated with all active branches registered in the `/branches` management tab.
-- [ ] **BRCH-02**: Default dropdown value set to the branch mapped from the estimated location of user (or "Unassigned" if unmapped/out-of-state).
-- [ ] **BRCH-03**: Any logged-in user can change the branch for a lead in both the desktop table view and mobile card view.
-- [ ] **BRCH-04**: Interactive confirmation prompt before clearing an assigned consultant when reassigning branch.
+- [x] **BRCH-01**: Interactive branch dropdown in the leads table populated with all active branches registered in the `/branches` management tab.
+- [x] **BRCH-02**: Default dropdown value set to the branch mapped from the estimated location of user (or "Unassigned" if unmapped/out-of-state).
+- [x] **BRCH-03**: Any logged-in user can change the branch for a lead in both the desktop table view and mobile card view.
+- [x] **BRCH-04**: Interactive confirmation prompt before clearing an assigned consultant when reassigning branch.
 - [x] **BRCH-05**: Persistent database update via `PATCH /api/leads/[id]` supporting `branch` field (and optional consultant reset) with optimistic UI updates and error rollback.
 - [ ] **BRCH-06**: Full audit logging of branch changes into `LeadActivity` (`BRANCH_CHANGE` action) visible to Superadmin in `/activity` logs viewer, while strictly hiding Superadmin activities.
 
@@ -63,10 +63,10 @@
 |-------------|-------|--------|
 | BRCH-05 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Complete |
 | BRCH-06 | Phase 7: Backend Lead Branch Update & Activity Audit Pipeline | Complete |
-| BRCH-01 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |
-| BRCH-02 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |
-| BRCH-03 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |
-| BRCH-04 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Pending |
+| BRCH-01 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
+| BRCH-02 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
+| BRCH-03 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
+| BRCH-04 | Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | Complete |
 | BRCH-06 | Phase 9: Superadmin Activity Log Integration & Verification | Pending |
 
 **Coverage:**

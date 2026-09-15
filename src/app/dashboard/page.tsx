@@ -24,7 +24,7 @@ interface Lead {
   remark: string | null;
   status: string;
   createdAt: string;
-  assignedConsultant?: string;
+  assignedConsultant?: string | null;
   handledBy?: string | null;
   testDrive?: string;
   platform?: string;
@@ -227,10 +227,17 @@ export default function DashboardPage() {
     try {
       const res = await fetch("/api/branches");
       const data = await res.json();
-      if (res.ok && Array.isArray(data.branches)) {
-        cachedBranchesList = data.branches;
-        branchesFetchedAt = Date.now();
-        setApiBranches(data.branches);
+      if (res.ok) {
+        const branchList: string[] = Array.isArray(data.branchNames)
+          ? data.branchNames
+          : Array.isArray(data.branches)
+          ? data.branches.map((b: any) => typeof b === 'string' ? b : b.name)
+          : [];
+        if (branchList.length > 0) {
+          cachedBranchesList = branchList;
+          branchesFetchedAt = Date.now();
+          setApiBranches(branchList);
+        }
       }
     } catch {
       // fallback
@@ -439,6 +446,12 @@ export default function DashboardPage() {
   const [remarkText, setRemarkText] = useState("");
   const [remarkLoading, setRemarkLoading] = useState(false);
 
+  // Branch change confirmation modal (when consultant is already assigned)
+  const [branchConfirmModal, setBranchConfirmModal] = useState<{
+    lead: Lead;
+    targetBranch: string;
+  } | null>(null);
+  const [branchUpdatingId, setBranchUpdatingId] = useState<number | null>(null);
 
   // Delete modal
   const [deleteModal, setDeleteModal] = useState<Lead | null>(null);
@@ -1364,6 +1377,60 @@ export default function DashboardPage() {
     }
   };
 
+  const handleBranchChange = (lead: Lead, newBranch: string) => {
+    const currentBranch = lead.branch || "";
+    if (currentBranch === newBranch) return;
+
+    if (lead.assignedConsultant && lead.assignedConsultant.trim()) {
+      setBranchConfirmModal({
+        lead,
+        targetBranch: newBranch,
+      });
+    } else {
+      executeBranchUpdate(lead, newBranch, false);
+    }
+  };
+
+  const executeBranchUpdate = async (lead: Lead, newBranch: string, clearConsultant: boolean) => {
+    const prevLeads = [...leads];
+    startUpdating();
+    activeFetchIdRef.current++;
+    setBranchUpdatingId(lead.id);
+
+    patchLeadInCache({
+      id: lead.id,
+      branch: newBranch,
+      ...(clearConsultant ? { assignedConsultant: null } : {}),
+    });
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branch: newBranch,
+          ...(clearConsultant ? { clearConsultant: true } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || data.details || "Failed to update branch", "error");
+        setLeads(prevLeads.map(l => (l.id === lead.id && data.handledBy) ? { ...l, handledBy: data.handledBy } : l));
+      } else {
+        showToast(`Branch updated to ${newBranch || "Unassigned"}`);
+        if (data.lead) {
+          patchLeadInCache(data.lead);
+        }
+      }
+    } catch (err: any) {
+      showToast(`Failed to update branch: ${err?.message || 'Network error'}`, "error");
+      setLeads(prevLeads);
+    } finally {
+      setBranchUpdatingId(null);
+      stopUpdating();
+    }
+  };
+
   const handleDeleteLead = async () => {
     if (!deleteModal) return;
     setDeleteLoading(true);
@@ -2004,30 +2071,20 @@ export default function DashboardPage() {
                             {lead.adname || "—"}
                           </td>
                           <td>
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "4px", width: "max-content", maxWidth: "100%" }}>
-                              {lead.branch ? parseBranches(lead.branch).map((b, idx) => (
-                                <span key={idx} style={{ background: "rgba(0,0,0,0.05)", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 600, whiteSpace: "nowrap", display: "inline-block" }}>
+                            <select
+                              className={`branch-select ${!lead.branch ? "branch-unassigned" : ""}`}
+                              value={lead.branch || ""}
+                              onChange={(e) => handleBranchChange(lead, e.target.value)}
+                              disabled={isLeadLocked || branchUpdatingId === lead.id}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Branch: ${lead.branch || "Unassigned"}`}
+                            >
+                              <option value="">Unassigned</option>
+                              {branches.map((b) => (
+                                <option key={b} value={b}>
                                   {b}
-                                </span>
-                              )) : (
-                                <span
-                                  style={{
-                                    background: "rgba(239, 68, 68, 0.1)",
-                                    color: "#dc2626",
-                                    border: "1px solid rgba(239, 68, 68, 0.25)",
-                                    padding: "2px 8px",
-                                    borderRadius: "12px",
-                                    fontSize: "11px",
-                                    fontWeight: 600,
-                                    whiteSpace: "nowrap",
-                                    display: "inline-block",
-                                  }}
-                                  title="Unassigned branch — Out of state or unmapped location"
-                                >
-                                  Unassigned
-                                </span>
-                              )}
-                            </div>
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td>
                             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -2318,29 +2375,21 @@ export default function DashboardPage() {
 
                         <div className="lead-mobile-meta-item">
                           <span className="lead-mobile-meta-label">Branch</span>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, overflow: "hidden" }}>
-                            {lead.branch ? parseBranches(lead.branch).map((b, idx) => (
-                              <span key={idx} style={{ background: "rgba(0,0,0,0.06)", padding: "1px 6px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <select
+                            className={`branch-select ${!lead.branch ? "branch-unassigned" : ""}`}
+                            style={{ width: "100%", maxWidth: "100%" }}
+                            value={lead.branch || ""}
+                            onChange={(e) => handleBranchChange(lead, e.target.value)}
+                            disabled={isLeadLocked || branchUpdatingId === lead.id}
+                            title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Branch: ${lead.branch || "Unassigned"}`}
+                          >
+                            <option value="">Unassigned</option>
+                            {branches.map((b) => (
+                              <option key={b} value={b}>
                                 {b}
-                              </span>
-                            )) : (
-                              <span
-                                style={{
-                                  background: "rgba(239, 68, 68, 0.1)",
-                                  color: "#dc2626",
-                                  border: "1px solid rgba(239, 68, 68, 0.25)",
-                                  padding: "1px 6px",
-                                  borderRadius: "8px",
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  whiteSpace: "nowrap",
-                                }}
-                                title="Unassigned branch — Out of state or unmapped location"
-                              >
-                                Unassigned
-                              </span>
-                            )}
-                          </div>
+                              </option>
+                            ))}
+                          </select>
                         </div>
 
                         <div className="lead-mobile-meta-item">
@@ -2510,6 +2559,60 @@ export default function DashboardPage() {
           >
             Next →
           </button>
+        </div>
+      )}
+
+      {/* Branch Change Confirmation Modal (when consultant is already assigned) */}
+      {branchConfirmModal && (
+        <div className="modal-overlay" onClick={() => setBranchConfirmModal(null)}>
+          <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              <div style={{
+                width: 42,
+                height: 42,
+                borderRadius: "50%",
+                background: "rgba(245, 158, 11, 0.12)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 20
+              }}>
+                ⚠️
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>Clear Assigned Consultant?</h3>
+                <p style={{ margin: "3px 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+                  Lead: <strong>{branchConfirmModal.lead.name}</strong>
+                </p>
+              </div>
+            </div>
+            <p style={{ fontSize: 13.5, color: "var(--text-secondary)", lineHeight: 1.55, margin: "14px 0 22px" }}>
+              This lead is currently assigned to consultant <strong style={{ color: "var(--text-primary)" }}>{branchConfirmModal.lead.assignedConsultant}</strong>.
+              Reassigning this lead to branch <strong style={{ color: "#0072bc" }}>{branchConfirmModal.targetBranch || "Unassigned"}</strong> will unassign the consultant.
+            </p>
+            <div className="modal-actions" style={{ marginTop: 0 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setBranchConfirmModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: "#d97706", borderColor: "#d97706" }}
+                onClick={() => {
+                  const { lead, targetBranch } = branchConfirmModal;
+                  setBranchConfirmModal(null);
+                  executeBranchUpdate(lead, targetBranch, true);
+                }}
+              >
+                Confirm & Clear Consultant
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
