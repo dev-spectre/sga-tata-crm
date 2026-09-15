@@ -23,15 +23,11 @@ Intelligent, error-resilient lead intake and automated nearest-branch assignment
 - ✓ **LOC-03 / GEO-01 / 02 / 03**: Geocoding fallback with persistent DB location cache (`LocationCache`) and queue throttling — `src/lib/location/geocoder.ts`
 - ✓ **ROUTE-01 / 02 / 03**: Nearest-branch routing engine via Haversine calculation with out-of-state fence and audit trail — `src/lib/location/routing.ts`
 - ✓ **INGEST-01 / 02 / 03**: Lead ingestion pipeline integration across Google Sheets sync, Excel upload modal, and webhooks — `src/lib/sync.ts`, `src/components/ExternalUploadModal.tsx`, `src/app/api/webhooks/lead/route.ts`
+- ✓ **BRCH-01 / 02 / 03 / 04 / 05 / 06**: Interactive branch dropdown in leads table & mobile cards, estimated location defaults, consultant clearance prompt, lead patch endpoint, and Superadmin audit logging with strict invisibility — `src/app/dashboard/page.tsx`, `src/app/api/leads/[id]/route.ts`, `src/app/activity/page.tsx`, `src/lib/activity.ts`
 
 ### Active
 
-- [ ] **BRCH-01**: Interactive branch dropdown in the leads table populated with all branches created from the `/branches` tab.
-- [ ] **BRCH-02**: Default dropdown selection reflects the branch auto-assigned from the estimated location of the user (or "Unassigned" if unmapped).
-- [ ] **BRCH-03**: Any logged-in user can change the branch for a lead in both the desktop table view and mobile card view.
-- [ ] **BRCH-04**: Interactive confirmation prompt before clearing an assigned consultant when reassigning branch.
-- [ ] **BRCH-05**: Persistent database update via `PATCH /api/leads/[id]` with optimistic updates and error rollback.
-- [ ] **BRCH-06**: Full audit logging of branch changes into `LeadActivity` visible to Superadmin in logs viewer, strictly hiding Superadmin activities.
+*None — Milestone v1.1 Complete*
 
 ### Out of Scope
 

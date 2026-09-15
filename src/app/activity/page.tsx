@@ -323,7 +323,7 @@ export default function UserActivityPage() {
       case "STATUS_CHANGE":
         return { label: "Status Update", color: "#2563eb", bg: "rgba(37, 99, 235, 0.1)" };
       case "REMARK_UPDATE":
-        return { label: "Remark Added", color: "#059669", bg: "rgba(16, 185, 129, 0.1)" };
+        return { label: "Remark Added", color: "#0072bc", bg: "rgba(0, 114, 188, 0.1)" };
       case "FOLLOWUP_DATE_1":
       case "FOLLOWUP_DATE_2":
         return { label: "Follow-up Set", color: "#d97706", bg: "rgba(217, 119, 6, 0.1)" };
@@ -333,6 +333,8 @@ export default function UserActivityPage() {
         return { label: "Test Drive", color: "#ec4899", bg: "rgba(236, 72, 153, 0.1)" };
       case "EXTERNAL_UPLOAD":
         return { label: "External Upload", color: "#0284c7", bg: "rgba(2, 132, 199, 0.1)" };
+      case "BRANCH_CHANGE":
+        return { label: "Branch Changed", color: "#059669", bg: "rgba(5, 150, 105, 0.1)" };
       default:
         return { label: action.replace(/_/g, " "), color: "var(--text-secondary)", bg: "rgba(148, 163, 184, 0.15)" };
     }
@@ -356,6 +358,8 @@ export default function UserActivityPage() {
         return newValue ? `Updated Test Drive to "${newValue}"` : "Cleared Test Drive";
       case "EXTERNAL_UPLOAD":
         return `Uploaded lead via external import`;
+      case "BRANCH_CHANGE":
+        return `Changed branch from "${oldValue || 'Unassigned'}" to "${newValue || 'Unassigned'}"`;
       default:
         return `Modified lead (${action.replace(/_/g, " ")})`;
     }
@@ -588,7 +592,7 @@ export default function UserActivityPage() {
             <div className="table-container">
               <table className="leads-table" style={{ background: "#ffffff", width: "100%" }}>
                 <thead>
-                  <tr style={{ background: "rgba(16, 185, 129, 0.03)", borderBottom: "1px solid var(--border)" }}>
+                  <tr style={{ background: "rgba(0, 114, 188, 0.03)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
                       User
                     </th>
@@ -653,14 +657,14 @@ export default function UserActivityPage() {
                                   width: 38,
                                   height: 38,
                                   borderRadius: "50%",
-                                  background: u.role === "ADMIN" ? "rgba(16, 185, 129, 0.12)" : "rgba(37, 99, 235, 0.12)",
-                                  color: u.role === "ADMIN" ? "#059669" : "#2563eb",
+                                  background: u.role === "ADMIN" ? "rgba(0, 114, 188, 0.12)" : "rgba(37, 99, 235, 0.12)",
+                                  color: u.role === "ADMIN" ? "#0072bc" : "#2563eb",
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
                                   fontWeight: 700,
                                   fontSize: 15,
-                                  border: `1px solid ${u.role === "ADMIN" ? "rgba(16, 185, 129, 0.3)" : "rgba(37, 99, 235, 0.3)"}`,
+                                  border: `1px solid ${u.role === "ADMIN" ? "rgba(0, 114, 188, 0.3)" : "rgba(37, 99, 235, 0.3)"}`,
                                 }}
                               >
                                 {u.username.charAt(0).toUpperCase()}
@@ -676,8 +680,8 @@ export default function UserActivityPage() {
                                       fontWeight: 700,
                                       padding: "1px 6px",
                                       borderRadius: 4,
-                                      background: u.role === "ADMIN" ? "rgba(16, 185, 129, 0.15)" : "rgba(37, 99, 235, 0.15)",
-                                      color: u.role === "ADMIN" ? "#059669" : "#2563eb",
+                                      background: u.role === "ADMIN" ? "rgba(0, 114, 188, 0.15)" : "rgba(37, 99, 235, 0.15)",
+                                      color: u.role === "ADMIN" ? "#0072bc" : "#2563eb",
                                     }}
                                   >
                                     {u.role}
@@ -821,8 +825,8 @@ export default function UserActivityPage() {
                                   borderRadius: 12,
                                   fontSize: 12,
                                   fontWeight: 700,
-                                  background: u.changesCount > 0 ? "rgba(16, 185, 129, 0.1)" : "rgba(148, 163, 184, 0.1)",
-                                  color: u.changesCount > 0 ? "#059669" : "var(--text-muted)",
+                                  background: u.changesCount > 0 ? "rgba(0, 114, 188, 0.1)" : "rgba(148, 163, 184, 0.1)",
+                                  color: u.changesCount > 0 ? "#0072bc" : "var(--text-muted)",
                                 }}
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
@@ -1030,7 +1034,7 @@ export default function UserActivityPage() {
             <div className="table-container">
               <table className="leads-table" style={{ background: "#ffffff", width: "100%" }}>
                 <thead>
-                  <tr style={{ background: "rgba(16, 185, 129, 0.03)", borderBottom: "1px solid var(--border)" }}>
+                  <tr style={{ background: "rgba(0, 114, 188, 0.03)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
                       Lead Name & Contact
                     </th>
@@ -1164,7 +1168,7 @@ export default function UserActivityPage() {
                           {/* Test Drive */}
                           <td style={{ padding: "14px 18px" }}>
                             {lead.testDrive && lead.testDrive !== "Not Scheduled" && lead.testDrive !== "No" ? (
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#059669", background: "rgba(16, 185, 129, 0.1)", padding: "2px 8px", borderRadius: 4 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#0072bc", background: "rgba(0, 114, 188, 0.1)", padding: "2px 8px", borderRadius: 4 }}>
                                 {lead.testDrive}
                               </span>
                             ) : (
@@ -1320,6 +1324,7 @@ export default function UserActivityPage() {
               <option value="FOLLOWUP_DATE_2">Follow-up 2 Updates</option>
               <option value="CONSULTANT_ASSIGN">Consultant Assignments</option>
               <option value="TEST_DRIVE">Test Drive Updates</option>
+              <option value="BRANCH_CHANGE">Branch Changes</option>
               <option value="EXTERNAL_UPLOAD">External Uploads</option>
             </select>
           </div>
@@ -1329,7 +1334,7 @@ export default function UserActivityPage() {
             <div className="table-container">
               <table className="leads-table" style={{ background: "#ffffff", width: "100%" }}>
                 <thead>
-                  <tr style={{ background: "rgba(16, 185, 129, 0.03)", borderBottom: "1px solid var(--border)" }}>
+                  <tr style={{ background: "rgba(0, 114, 188, 0.03)", borderBottom: "1px solid var(--border)" }}>
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
                       Timestamp
                     </th>

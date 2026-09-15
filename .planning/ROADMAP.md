@@ -26,7 +26,7 @@ Transition SGA Tata CRM to an intelligent, automated location-based nearest-bran
 
 - [x] **Phase 7: Backend Lead Branch Update & Activity Audit Pipeline** - Extend `PATCH /api/leads/[id]` for branch updates, consultant clearance, and audit logging with Superadmin invisibility.
 - [x] **Phase 8: Interactive Branch Dropdown in Leads Table (Desktop & Mobile)** - Build dynamic branch dropdowns in desktop table and mobile cards with consultant clearance confirmation prompt.
-- [ ] **Phase 9: Superadmin Activity Log Integration & Verification** - Formatted branch change audit log presentation in `/activity` and end-to-end pipeline verification.
+- [x] **Phase 9: Superadmin Activity Log Integration & Verification** - Formatted branch change audit log presentation in `/activity` and end-to-end pipeline verification.
 
 ---
 
@@ -75,7 +75,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 09-01: Update activity log UI formatting for `BRANCH_CHANGE` and run end-to-end verification.
+- [x] 09-01: Update activity log UI formatting for `BRANCH_CHANGE` and run end-to-end verification.
 
 ---
 
@@ -94,7 +94,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Lead Ingestion & Sync Pipeline Integration | 2/2 | Complete | 2026-09-12 |
 | 7. Backend Lead Branch Update & Activity Audit Pipeline | 2/2 | Complete | 2026-09-15 |
 | 8. Interactive Branch Dropdown in Leads Table (Desktop & Mobile) | 2/2 | Complete | 2026-09-15 |
-| 9. Superadmin Activity Log Integration & Verification | 0/1 | Pending | — |
+| 9. Superadmin Activity Log Integration & Verification | 1/1 | Complete | 2026-09-15 |
 
 ---
 *Roadmap defined: 2026-09-11*
