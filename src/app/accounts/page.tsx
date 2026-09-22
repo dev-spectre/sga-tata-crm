@@ -87,10 +87,11 @@ export default function AccountsPage() {
     try {
       const res = await fetch("/api/branches");
       if (res.ok) {
+        const data = await res.json();
         const branchList: string[] = Array.isArray(data.branchNames)
           ? data.branchNames
           : Array.isArray(data.branches)
-          ? data.branches.map((b: any) => (typeof b === "string" ? b : b.name))
+          ? data.branches.map((b: { name: string } | string) => (typeof b === "string" ? b : b.name))
           : [];
         cachedBranchesList = branchList;
         setBranches(branchList);

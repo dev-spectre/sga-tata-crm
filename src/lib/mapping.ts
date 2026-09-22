@@ -39,7 +39,7 @@ export async function computeIntelligentMapping(
   const dataRows = rows.slice(1, 10);
   const mapping: Partial<Record<keyof ColumnMapping, number>> = {};
 
-  const regexMap: Record<keyof ColumnMapping, RegExp[]> = {
+  const regexMap: Partial<Record<keyof ColumnMapping, RegExp[]>> = {
     name: [/^full\s?_?name$/i, /^first\s?_?name$/i, /^name$/i, /client\s?_?name/i, /lead\s?_?name/i, /name/i],
     phone: [/^phone$/i, /^mobile$/i, /^contact\s?_?no/i, /phone|mobile|contact|cell|number/i],
     city: [/^city$/i, /^location$/i, /city|location|town/i],
