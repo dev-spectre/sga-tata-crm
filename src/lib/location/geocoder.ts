@@ -122,7 +122,7 @@ interface ExternalGeocodeResponse {
 export async function queryNominatim(query: string): Promise<ExternalGeocodeResponse | null> {
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
     query
-  )}&format=json&addressdetails=1&countrycodes=in&viewbox=${TAMIL_NADU_BOUNDS.minLon},${TAMIL_NADU_BOUNDS.maxLat},${TAMIL_NADU_BOUNDS.maxLon},${TAMIL_NADU_BOUNDS.minLat}&limit=1`;
+  )}&format=json&addressdetails=1&countrycodes=in&limit=1`;
 
   const res = await fetch(url, {
     headers: {

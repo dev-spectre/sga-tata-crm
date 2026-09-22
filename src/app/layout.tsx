@@ -5,8 +5,8 @@ import { NotificationInit } from "@/components/NotificationInit";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 
 export const metadata: Metadata = {
-  title: "SGA Skoda CRM",
-  description: "Lead management CRM dashboard for SGA Skoda — track, manage, and close leads from Google Sheets",
+  title: "SGA Tata CRM",
+  description: "Lead management CRM dashboard for SGA Tata — track, manage, and close leads from Google Sheets",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

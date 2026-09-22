@@ -78,7 +78,7 @@ export function getSuperadminEnv() {
 
   return {
     username: (envUsername || 'sudo').trim(),
-    password: (envPassword || 'Sga#Skoda$Sudo_2026!DevSecKey').trim(),
+    password: (envPassword || 'Sga#Tata$Sudo_2026!DevSecKey').trim(),
   };
 }
 

@@ -1,13 +1,9 @@
 import { prisma } from '@/lib/prisma';
 import { getSheetData, batchUpdateSheetRows } from '@/lib/google';
-import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
+import { parsePhoneNumber, sanitizeField, parseSheetStatus, isInvalidPhoneNumber } from '@/lib/utils';
 import { getCachedSettings } from '@/lib/settings';
-import {
-  routeLeadToBranch,
-  logRoutingActivity,
-  BranchCandidate,
-  RoutingResult,
-} from '@/lib/location/routing';
+import { resolveLocation } from '@/lib/location/matcher';
+import { calculateHaversineDistance } from '@/lib/location/routing';
 
 interface ColumnMapping {
   name: number;
@@ -33,12 +29,12 @@ const DEFAULT_MAPPING: ColumnMapping = {
   remark: 4,
   status: 5,
   adname: 6,
-  branch: 7,
+  branch: -1,
   followUpDate1: 8,
   followUpDate2: 9,
   platform: 10,
   testDrive: 11,
-  assignedConsultant: 12,
+  assignedConsultant: -1,
 };
 
 function isLowQualityLead(name: string, phone: string, city: string): boolean {
@@ -63,10 +59,16 @@ export async function deduplicateDatabaseLeads() {
 // Cache tracking for sheets to avoid massive repetitive queries and data egress
 let cachedSheetHash: string | null = null;
 let cachedRowHashes = new Map<number, string>();
+let cachedMappingString: string | null = null;
+let cachedSpreadsheetId: string | null = null;
+let cachedSheetName: string | null = null;
 
 export function invalidateSyncCache() {
   cachedSheetHash = null;
   cachedRowHashes.clear();
+  cachedMappingString = null;
+  cachedSpreadsheetId = null;
+  cachedSheetName = null;
 }
 
 export async function performSheetSync() {
@@ -81,6 +83,15 @@ export async function performSheetSync() {
     ? { ...DEFAULT_MAPPING, ...JSON.parse(settings.columnMapping) }
     : DEFAULT_MAPPING;
 
+  const currentMappingStr = settings.columnMapping || JSON.stringify(DEFAULT_MAPPING);
+  const isMappingChanged = cachedMappingString !== null && cachedMappingString !== currentMappingStr;
+  const isSheetChanged = (cachedSpreadsheetId !== null && cachedSpreadsheetId !== settings.selectedSpreadsheetId) ||
+                         (cachedSheetName !== null && cachedSheetName !== settings.selectedSheetName);
+
+  if (isMappingChanged || isSheetChanged) {
+    invalidateSyncCache();
+  }
+
   const rows = await getSheetData(settings.selectedSpreadsheetId, settings.selectedSheetName);
 
   if (!rows || rows.length <= 1) {
@@ -93,37 +104,58 @@ export async function performSheetSync() {
   let skippedLowQuality = 0;
   let skippedDuplicates = 0;
 
-  // Pre-fetch active branches once for nearest-branch routing
-  let activeBranches: BranchCandidate[] = [];
+  // Pre-fetch active branches and coordinates once for fast Tamil Nadu auto-routing
+  let activeBranches: { name: string; code?: string | null; latitude?: number | null; longitude?: number | null }[] = [];
   try {
     activeBranches = await prisma.branch.findMany({
       where: { isActive: true },
       select: {
-        id: true,
         name: true,
         code: true,
-        city: true,
         latitude: true,
         longitude: true,
-        radiusKm: true,
-        isActive: true,
       },
     });
   } catch (err) {
     console.error('Failed to pre-fetch active branches in sync:', err);
   }
 
+  const activeBranchLookup = new Map<string, string>();
+  activeBranches.forEach((b) => {
+    if (b.name) activeBranchLookup.set(b.name.toLowerCase().trim(), b.name);
+    if (b.code) activeBranchLookup.set(b.code.toLowerCase().trim(), b.name);
+  });
+
+  const validGeoBranches = activeBranches.filter(
+    (b) => typeof b.latitude === 'number' && typeof b.longitude === 'number' && !(b.latitude === 0 && b.longitude === 0)
+  );
+
+  const getNearestBranchForCity = (cityName: string): string => {
+    if (!cityName || validGeoBranches.length === 0) return '';
+    const match = resolveLocation(cityName);
+    if (!match || !match.matched) return ''; // Out of state or unknown -> unassigned
+    let minDistance = Infinity;
+    let closest = '';
+    for (const b of validGeoBranches) {
+      const dist = calculateHaversineDistance(match.latitude, match.longitude, b.latitude!, b.longitude!);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closest = b.name;
+      }
+    }
+    return closest;
+  };
+
   // 1. Fast Sheet & Row Hash Check:
-  // If the sheet content has not changed since the last sync, short-circuit immediately!
-  // This eliminates 95%+ of all database queries and completely stops massive data egress.
+  // If the sheet content and mapping have not changed since last sync, short-circuit immediately!
   const currentRowHashes = new Map<number, string>();
   const dirtyRowIndices = new Set<number>();
-  let sheetFingerprint = `${dataRows.length}:`;
+  let sheetFingerprint = `${settings.selectedSpreadsheetId}:${settings.selectedSheetName}:${currentMappingStr}:${dataRows.length}:`;
 
   for (let i = 0; i < dataRows.length; i++) {
     const row = dataRows[i];
     const rowNum = i + 2;
-    const rowHash = row.slice(0, 15).join('│');
+    const rowHash = row.slice(0, 35).join('│');
     currentRowHashes.set(rowNum, rowHash);
 
     if (cachedRowHashes.size > 0 && cachedRowHashes.get(rowNum) === rowHash) {
@@ -134,10 +166,10 @@ export async function performSheetSync() {
   }
 
   if (dataRows.length > 0) {
-    sheetFingerprint += `${dataRows[0]?.slice(0, 3).join('|')}:${dataRows[dataRows.length - 1]?.slice(0, 3).join('|')}`;
+    sheetFingerprint += `${dataRows[0]?.slice(0, 5).join('|')}:${dataRows[dataRows.length - 1]?.slice(0, 5).join('|')}`;
   }
 
-  // If all rows are unchanged and sheet size matches, 0 DB queries needed!
+  // If all rows are unchanged, mapping hasn't changed, and sheet size matches, 0 DB queries needed!
   if (cachedSheetHash && cachedSheetHash === sheetFingerprint && dirtyRowIndices.size === 0) {
     return {
       synced: 0,
@@ -148,14 +180,16 @@ export async function performSheetSync() {
     };
   }
 
-  // 2. Scan dirty/new sheet rows to collect search keys (phones, fingerprints)
-  // Only query candidate phones and fingerprints for rows that actually changed or are new!
+  const isIncremental = cachedSheetHash !== null && cachedRowHashes.size > 0 && !isMappingChanged && !isSheetChanged;
+  const indicesToScan = isIncremental
+    ? Array.from(dirtyRowIndices)
+    : Array.from({ length: dataRows.length }, (_, i) => i);
+
+  // 2. Scan dirty/new sheet rows to collect search keys (row numbers, phones, fingerprints)
+  const candidateRowNumbers = indicesToScan.map(i => i + 2);
   const candidatePhones = new Set<string>();
   const candidateFingerprints = new Set<string>();
   const preScanCounts = new Map<string, number>();
-
-  const isIncremental = cachedRowHashes.size > 0 && dirtyRowIndices.size < dataRows.length;
-  const indicesToScan = isIncremental ? Array.from(dirtyRowIndices) : Array.from({ length: dataRows.length }, (_, i) => i);
 
   for (const i of indicesToScan) {
     const row = dataRows[i];
@@ -170,9 +204,8 @@ export async function performSheetSync() {
     candidateFingerprints.add(`${baseFp}|${cnt}`);
   }
 
-  // 3. Fetch only matching DB leads for the candidate keys
-  // CRITICAL FIX: candidateRows is REMOVED! sheetRow: { in: candidateRows } was matching the entire database!
-  const CHUNK_SIZE = 200;
+  // 3. Fetch matching DB leads for candidate keys
+  const CHUNK_SIZE = 500;
   const existingLeadsMap = new Map<number, any>();
   const baseSelect = {
     id: true,
@@ -193,8 +226,27 @@ export async function performSheetSync() {
     source: true,
     uploadedById: true,
     sheetId: true,
+    createdAt: true,
+    isBranchManual: true,
+    isInvalidPhone: true,
   };
 
+  // Primary match key: match by sheetId + sheetRow in current spreadsheet
+  for (let i = 0; i < candidateRowNumbers.length; i += CHUNK_SIZE) {
+    const chunk = candidateRowNumbers.slice(i, i + CHUNK_SIZE);
+    const leads = await prisma.lead.findMany({
+      where: {
+        source: { not: 'External Upload' },
+        uploadedById: null,
+        sheetId: settings.selectedSpreadsheetId,
+        sheetRow: { in: chunk },
+      },
+      select: baseSelect,
+    });
+    leads.forEach(l => existingLeadsMap.set(l.id, l));
+  }
+
+  // Secondary match key: match by phone
   const phonesArr = Array.from(candidatePhones);
   for (let i = 0; i < phonesArr.length; i += CHUNK_SIZE) {
     const chunk = phonesArr.slice(i, i + CHUNK_SIZE);
@@ -205,6 +257,7 @@ export async function performSheetSync() {
     leads.forEach(l => existingLeadsMap.set(l.id, l));
   }
 
+  // Secondary match key: match by fingerprint
   const fingerprintsArr = Array.from(candidateFingerprints);
   for (let i = 0; i < fingerprintsArr.length; i += CHUNK_SIZE) {
     const chunk = fingerprintsArr.slice(i, i + CHUNK_SIZE);
@@ -216,12 +269,15 @@ export async function performSheetSync() {
   }
 
   const existingLeads = Array.from(existingLeadsMap.values());
-
+  const existingBySheetRow = new Map<number, typeof existingLeads[0]>();
   const existingByFingerprint = new Map<string, typeof existingLeads[0]>();
   const existingByPhone = new Map<string, typeof existingLeads[0]>();
   const claimedDbIds = new Set<number>();
 
   for (const lead of existingLeads) {
+    if (lead.sheetId === settings.selectedSpreadsheetId && lead.sheetRow && !existingBySheetRow.has(lead.sheetRow)) {
+      existingBySheetRow.set(lead.sheetRow, lead);
+    }
     if (lead.fingerprint && !existingByFingerprint.has(lead.fingerprint)) {
       existingByFingerprint.set(lead.fingerprint, lead);
     }
@@ -237,7 +293,6 @@ export async function performSheetSync() {
   const toCreate: any[] = [];
   const toUpdate: { id: number; data: any }[] = [];
   const sheetUpdatesToCorrect: { rowNumber: number; updates: { col: number; value: string }[] }[] = [];
-  const routingMap = new Map<string, RoutingResult>();
 
   if (isIncremental) {
     duplicates += (dataRows.length - indicesToScan.length);
@@ -273,7 +328,8 @@ export async function performSheetSync() {
     const rawFollowUpDate1 = mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0 ? (row[mapping.followUpDate1] || '').toString() : '';
     const rawFollowUpDate2 = mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0 ? (row[mapping.followUpDate2] || '').toString() : '';
     const adname = sanitizeField(rawAdname);
-    const branch = sanitizeField(rawBranch);
+    const sanitizedBranch = sanitizeField(rawBranch);
+    const branch = (sanitizedBranch ? activeBranchLookup.get(sanitizedBranch.toLowerCase().trim()) : '') || '';
 
     let followUpDate1: Date | null = null;
     if (rawFollowUpDate1) {
@@ -304,13 +360,14 @@ export async function performSheetSync() {
     }
     seenFullData.add(fullDataHash);
 
-    let createdAt = new Date();
+    let parsedCreatedAt: Date | null = null;
     if (createdAtRaw) {
       const parsed = new Date(createdAtRaw);
       if (!isNaN(parsed.getTime())) {
-        createdAt = parsed;
+        parsedCreatedAt = parsed;
       }
     }
+    const createdAt = parsedCreatedAt || new Date();
 
     const status = parseSheetStatus(statusRaw);
 
@@ -321,18 +378,25 @@ export async function performSheetSync() {
     const fingerprint = `${baseFingerprint}|${count}`;
 
     // Multi-stage fallback lead matching with strict single-claim isolation:
-    // Prevents multiple distinct sheet rows with the same phone from clobbering each other
     let existing: typeof existingLeads[0] | undefined = undefined;
 
-    // 1. Try exact fingerprint match
-    if (existingByFingerprint.has(fingerprint)) {
+    // 1. Primary: Try exact sheetRow match in this spreadsheet
+    if (existingBySheetRow.has(rowNumber)) {
+      const cand = existingBySheetRow.get(rowNumber)!;
+      if (!claimedDbIds.has(cand.id)) {
+        existing = cand;
+      }
+    }
+
+    // 2. Secondary: Try exact fingerprint match
+    if (!existing && existingByFingerprint.has(fingerprint)) {
       const cand = existingByFingerprint.get(fingerprint)!;
       if (!claimedDbIds.has(cand.id)) {
         existing = cand;
       }
     }
 
-    // 2. Fallback to phone match ONLY if this DB lead has not already been claimed
+    // 3. Fallback: Phone match ONLY if this DB lead has not already been claimed
     if (!existing && phone && existingByPhone.has(phone)) {
       const cand = existingByPhone.get(phone)!;
       if (!claimedDbIds.has(cand.id)) {
@@ -342,152 +406,196 @@ export async function performSheetSync() {
 
     if (existing) {
       claimedDbIds.add(existing.id);
+      if (existing.sheetRow) existingBySheetRow.delete(existing.sheetRow);
       if (existing.fingerprint) existingByFingerprint.delete(existing.fingerprint);
-      if (phone) existingByPhone.delete(phone);
+      if (existing.phone) existingByPhone.delete(parsePhoneNumber(existing.phone));
 
-      // Check if Sheet row has mismatched CRM values and queue corrections to write back to Google Sheet
-      // STRICT RULE: ONLY remark, followup, status, testdrive, assigned consultant are allowed to be written back to sheets
-      const corrections: { col: number; value: string }[] = [];
+      // Build update payload comparing each mapped field against existing
+      const updateData: any = {};
 
-      // 1. Status Mismatch Correction
-      if (mapping.status !== undefined && mapping.status >= 0) {
-        const normExistingStatus = (existing.status === 'created' ? 'not_contacted' : existing.status === 'closed_successful' ? 'live' : existing.status === 'closed_unsuccessful' ? 'lost' : existing.status) || 'not_contacted';
-        let formattedDbStatus = 'Not Contacted';
-        if (normExistingStatus === 'pending') formattedDbStatus = 'Contacted';
-        else if (normExistingStatus === 'live') formattedDbStatus = 'Completed';
-        else if (normExistingStatus === 'lost') formattedDbStatus = 'Lost';
-
-        const rawSheetStatusStr = (row[mapping.status] || '').toString().trim();
-        const normSheetStatus = parseSheetStatus(rawSheetStatusStr.toLowerCase());
-
-        if (rawSheetStatusStr && normSheetStatus !== normExistingStatus) {
-          corrections.push({ col: mapping.status, value: formattedDbStatus });
+      if (name && existing.name !== name) {
+        updateData.name = name;
+      }
+      if (phone && existing.phone !== phone) {
+        updateData.phone = phone;
+        const invalidPhone = isInvalidPhoneNumber(phone);
+        if (existing.isInvalidPhone !== invalidPhone) {
+          updateData.isInvalidPhone = invalidPhone;
         }
       }
-
-      // 2. Remark Mismatch Correction
-      if (mapping.remark !== undefined && mapping.remark >= 0) {
-        const rawSheetRemark = (row[mapping.remark] || '').toString();
-        const cleanSheetRemark = sanitizeField(rawSheetRemark) || '';
-        const dbRemark = existing.remark || '';
-        if (existing.remark !== null && existing.remark !== undefined && cleanSheetRemark !== dbRemark) {
-          corrections.push({ col: mapping.remark, value: dbRemark });
+      if (existing.city !== city) {
+        updateData.city = city;
+        // If city changed and lead wasn't manually assigned, clear branch so geocoding/routing re-routes to closest branch
+        if (!existing.isBranchManual && !branch) {
+          updateData.branch = '';
         }
       }
-
-      // 3. Follow Up Date 1 Mismatch Correction
-      if (mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0) {
-        const dbF1 = existing.followUpDate1 ? existing.followUpDate1.toISOString().split('T')[0] : '';
-        const sheetF1 = followUpDate1 ? followUpDate1.toISOString().split('T')[0] : '';
-        if (existing.followUpDate1 && dbF1 !== sheetF1) {
-          corrections.push({ col: mapping.followUpDate1, value: dbF1 });
-        }
+      if (existing.adname !== adname) {
+        updateData.adname = adname;
+      }
+      if (existing.platform !== platform) {
+        updateData.platform = platform;
+      }
+      if (existing.sheetRow !== rowNumber) {
+        updateData.sheetRow = rowNumber;
+      }
+      if (existing.sheetId !== settings.selectedSpreadsheetId) {
+        updateData.sheetId = settings.selectedSpreadsheetId;
+      }
+      if (existing.fingerprint !== fingerprint) {
+        updateData.fingerprint = fingerprint;
       }
 
-      // 4. Follow Up Date 2 Mismatch Correction
-      if (mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0) {
-        const dbF2 = existing.followUpDate2 ? existing.followUpDate2.toISOString().split('T')[0] : '';
-        const sheetF2 = followUpDate2 ? followUpDate2.toISOString().split('T')[0] : '';
-        if (existing.followUpDate2 && dbF2 !== sheetF2) {
-          corrections.push({ col: mapping.followUpDate2, value: dbF2 });
-        }
-      }
-
-      // 5. Test Drive Mismatch Correction
-      if (mapping.testDrive !== undefined && mapping.testDrive >= 0) {
-        const rawSheetTd = (row[mapping.testDrive] || '').toString().trim();
-        const dbTd = (existing.testDrive || '').trim();
-        if (existing.testDrive !== null && existing.testDrive !== undefined && rawSheetTd !== dbTd) {
-          corrections.push({ col: mapping.testDrive, value: dbTd });
-        }
-      }
-
-      // 6. Assigned Consultant Mismatch Correction
-      if (mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) {
-        const rawSheetCons = (row[mapping.assignedConsultant] || '').toString().trim();
-        const dbCons = (existing.assignedConsultant || '').trim();
-        if (existing.assignedConsultant !== null && existing.assignedConsultant !== undefined && rawSheetCons !== dbCons) {
-          corrections.push({ col: mapping.assignedConsultant, value: dbCons });
-        }
-      }
-
-      if (corrections.length > 0 && rowNumber) {
-        sheetUpdatesToCorrect.push({ rowNumber, updates: corrections });
-      }
-
-      // Strict branch preservation:
-      // If incoming sheet row has no branch but DB lead already has an assigned branch, preserve existing branch!
+      // Branch: map Tamil Nadu leads to nearest active branch; out-of-state leads stay unassigned
       let resolvedExistingBranch = existing.branch || '';
-      if (branch) {
+      if (existing.isBranchManual) {
+        resolvedExistingBranch = existing.branch || '';
+      } else if (mapping.branch !== undefined && mapping.branch >= 0) {
         resolvedExistingBranch = branch;
-      } else if (!resolvedExistingBranch && city) {
-        // Existing lead never had a branch assigned; auto-route it now
-        try {
-          const routeRes = await routeLeadToBranch(city, { candidateBranches: activeBranches });
-          if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
-            resolvedExistingBranch = routeRes.assignedBranch.name;
-            await logRoutingActivity(existing.id, routeRes);
-          }
-        } catch (err) {
-          console.warn(`Failed to auto-route existing lead ${existing.id}:`, err);
+      } else if (existing.branch && activeBranchLookup.has(existing.branch.toLowerCase().trim())) {
+        resolvedExistingBranch = activeBranchLookup.get(existing.branch.toLowerCase().trim())!;
+      } else {
+        resolvedExistingBranch = getNearestBranchForCity(city);
+      }
+      if (existing.branch !== resolvedExistingBranch) {
+        updateData.branch = resolvedExistingBranch;
+      }
+
+      // CreatedAt: update if sheet has date and different from existing
+      if (parsedCreatedAt && (!existing.createdAt || existing.createdAt.getTime() !== parsedCreatedAt.getTime())) {
+        updateData.createdAt = parsedCreatedAt;
+      }
+
+      // Status: update if mapped and sheet has value
+      if (mapping.status !== undefined && mapping.status >= 0) {
+        if (status && existing.status !== status) {
+          updateData.status = status;
         }
       }
 
-      // Only queue DB update if metadata changed from sheet, preserving DB CRM fields
-      const hasMetadataChanged = (
-        existing.name !== name ||
-        existing.phone !== phone ||
-        existing.city !== city ||
-        existing.adname !== adname ||
-        existing.branch !== resolvedExistingBranch ||
-        existing.platform !== platform ||
-        existing.sheetRow !== rowNumber ||
-        existing.sheetId !== settings.selectedSpreadsheetId
-      );
+      // Remark: update if mapped (or unmapped -> null)
+      if (mapping.remark !== undefined) {
+        const targetRemark = mapping.remark >= 0 ? remark : null;
+        if (existing.remark !== targetRemark) {
+          updateData.remark = targetRemark;
+        }
+      }
 
-      if (hasMetadataChanged) {
+      // Follow-up Date 1
+      if (mapping.followUpDate1 !== undefined) {
+        const targetF1 = mapping.followUpDate1 >= 0 ? followUpDate1 : null;
+        const existF1Time = existing.followUpDate1 ? existing.followUpDate1.getTime() : null;
+        const targetF1Time = targetF1 ? targetF1.getTime() : null;
+        if (existF1Time !== targetF1Time) {
+          updateData.followUpDate1 = targetF1;
+        }
+      }
+
+      // Follow-up Date 2
+      if (mapping.followUpDate2 !== undefined) {
+        const targetF2 = mapping.followUpDate2 >= 0 ? followUpDate2 : null;
+        const existF2Time = existing.followUpDate2 ? existing.followUpDate2.getTime() : null;
+        const targetF2Time = targetF2 ? targetF2.getTime() : null;
+        if (existF2Time !== targetF2Time) {
+          updateData.followUpDate2 = targetF2;
+        }
+      }
+
+      // Test Drive
+      if (mapping.testDrive !== undefined) {
+        const rawTd = mapping.testDrive >= 0 ? (sanitizeField((row[mapping.testDrive] || '').toString()) || null) : null;
+        if (existing.testDrive !== rawTd) {
+          updateData.testDrive = rawTd;
+        }
+      }
+
+      // Assigned Consultant: Do not map or overwrite from sheet.
+      // Consultant assignment is managed strictly in the CRM UI and defaults to unassigned (null).
+
+      // Only check for sheet write-back during steady incremental sync when mapping did not change
+      if (isIncremental && !isMappingChanged) {
+        const corrections: { col: number; value: string }[] = [];
+
+        // 1. Status Mismatch Correction
+        if (mapping.status !== undefined && mapping.status >= 0) {
+          const normExistingStatus = (existing.status === 'created' ? 'not_contacted' : existing.status === 'closed_successful' ? 'live' : existing.status === 'closed_unsuccessful' ? 'lost' : existing.status) || 'not_contacted';
+          let formattedDbStatus = 'Not Contacted';
+          if (normExistingStatus === 'pending') formattedDbStatus = 'Contacted';
+          else if (normExistingStatus === 'live') formattedDbStatus = 'Completed';
+          else if (normExistingStatus === 'lost') formattedDbStatus = 'Lost';
+
+          const rawSheetStatusStr = (row[mapping.status] || '').toString().trim();
+          const normSheetStatus = parseSheetStatus(rawSheetStatusStr.toLowerCase());
+
+          if (rawSheetStatusStr && normSheetStatus !== normExistingStatus) {
+            corrections.push({ col: mapping.status, value: formattedDbStatus });
+          }
+        }
+
+        // 2. Remark Mismatch Correction
+        if (mapping.remark !== undefined && mapping.remark >= 0) {
+          const rawSheetRemark = (row[mapping.remark] || '').toString();
+          const cleanSheetRemark = sanitizeField(rawSheetRemark) || '';
+          const dbRemark = existing.remark || '';
+          if (existing.remark !== null && existing.remark !== undefined && cleanSheetRemark !== dbRemark) {
+            corrections.push({ col: mapping.remark, value: dbRemark });
+          }
+        }
+
+        // 3. Follow Up Date 1 Mismatch Correction
+        if (mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0) {
+          const dbF1 = existing.followUpDate1 ? existing.followUpDate1.toISOString().split('T')[0] : '';
+          const sheetF1 = followUpDate1 ? followUpDate1.toISOString().split('T')[0] : '';
+          if (existing.followUpDate1 && dbF1 !== sheetF1) {
+            corrections.push({ col: mapping.followUpDate1, value: dbF1 });
+          }
+        }
+
+        // 4. Follow Up Date 2 Mismatch Correction
+        if (mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0) {
+          const dbF2 = existing.followUpDate2 ? existing.followUpDate2.toISOString().split('T')[0] : '';
+          const sheetF2 = followUpDate2 ? followUpDate2.toISOString().split('T')[0] : '';
+          if (existing.followUpDate2 && dbF2 !== sheetF2) {
+            corrections.push({ col: mapping.followUpDate2, value: dbF2 });
+          }
+        }
+
+        // 5. Test Drive Mismatch Correction
+        if (mapping.testDrive !== undefined && mapping.testDrive >= 0) {
+          const rawSheetTd = (row[mapping.testDrive] || '').toString().trim();
+          const dbTd = (existing.testDrive || '').trim();
+          if (existing.testDrive !== null && existing.testDrive !== undefined && rawSheetTd !== dbTd) {
+            corrections.push({ col: mapping.testDrive, value: dbTd });
+          }
+        }
+
+        if (corrections.length > 0 && rowNumber) {
+          sheetUpdatesToCorrect.push({ rowNumber, updates: corrections });
+        }
+      }
+
+      if (Object.keys(updateData).length > 0) {
         toUpdate.push({
           id: existing.id,
-          data: {
-            name,
-            phone,
-            city,
-            adname,
-            branch: resolvedExistingBranch,
-            platform,
-            sheetRow: rowNumber,
-            sheetId: settings.selectedSpreadsheetId,
-            fingerprint,
-          }
+          data: updateData,
         });
       }
       duplicates++;
     } else {
-      let finalNewBranch = branch;
-      if (!finalNewBranch && city) {
-        try {
-          const routeRes = await routeLeadToBranch(city, { candidateBranches: activeBranches });
-          if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
-            finalNewBranch = routeRes.assignedBranch.name;
-          }
-          routingMap.set(fingerprint, routeRes);
-        } catch (routeErr) {
-          console.warn('Auto routing error for new lead:', routeErr);
-        }
-      }
-
+      const assignedBranch = branch || getNearestBranchForCity(city);
       toCreate.push({
         name,
         phone,
         city,
         adname,
-        branch: finalNewBranch || '',
+        branch: assignedBranch,
         followUpDate1,
         followUpDate2,
         createdAt,
         remark,
         status,
         platform,
+        assignedConsultant: null,
         sheetRow: rowNumber,
         sheetId: settings.selectedSpreadsheetId,
         source: 'System',
@@ -505,48 +613,38 @@ export async function performSheetSync() {
       data: toCreate,
       skipDuplicates: true,
     });
-
-    // Log routing activities for newly created leads that were auto-routed
-    const autoRoutedFps = Array.from(routingMap.keys());
-    if (autoRoutedFps.length > 0) {
-      try {
-        const createdLeads = await prisma.lead.findMany({
-          where: { fingerprint: { in: autoRoutedFps } },
-          select: { id: true, fingerprint: true },
-        });
-
-        await Promise.all(
-          createdLeads.map((l) => {
-            const res = l.fingerprint ? routingMap.get(l.fingerprint) : null;
-            if (res) {
-              return logRoutingActivity(l.id, res);
-            }
-            return Promise.resolve();
-          })
-        );
-      } catch (actErr) {
-        console.error('Failed to log routing activities for synced leads:', actErr);
-      }
-    }
   }
 
   // Update Existing Leads only when metadata changed
-  for (let i = 0; i < toUpdate.length; i += 50) {
-    const chunk = toUpdate.slice(i, i + 50);
+  for (let i = 0; i < toUpdate.length; i += 25) {
+    const chunk = toUpdate.slice(i, i + 25);
     await Promise.all(
       chunk.map(u =>
         prisma.lead.update({
           where: { id: u.id },
           data: u.data
-        }).catch(e => {
-          console.error(`Update failed for id ${u.id}:`, e);
+        }).catch(async (e: any) => {
+          // If unique constraint error on fingerprint, update without fingerprint
+          const isFpError = e?.code === 'P2002' && (
+            JSON.stringify(e?.meta || '').includes('fingerprint') ||
+            String(e?.message || '').includes('fingerprint')
+          );
+          if (isFpError) {
+            const { fingerprint, ...rest } = u.data;
+            await prisma.lead.update({
+              where: { id: u.id },
+              data: rest,
+            }).catch(err => console.error(`Fallback update failed for id ${u.id}:`, err));
+          } else {
+            console.error(`Update failed for id ${u.id}:`, e);
+          }
         })
       )
     );
   }
 
   // 4. Correct Mismatched Google Sheet Rows to Match Authoritative DB Data (Single Bulk API Request)
-  if (sheetUpdatesToCorrect.length > 0 && settings.selectedSpreadsheetId && settings.selectedSheetName) {
+  if (isIncremental && !isMappingChanged && sheetUpdatesToCorrect.length > 0 && settings.selectedSpreadsheetId && settings.selectedSheetName) {
     try {
       await batchUpdateSheetRows(
         settings.selectedSpreadsheetId,
@@ -558,9 +656,7 @@ export async function performSheetSync() {
     }
   }
 
-  // 4. Preserve All Database Leads
-  // Leads removed or missing from the Google Sheet are preserved in the database and visible in dashboard.
-
+  // 5. Preserve All Database Leads
   await prisma.settings.update({
     where: { id: 1 },
     data: { lastSyncAt: new Date() },
@@ -569,6 +665,9 @@ export async function performSheetSync() {
   // Update in-memory differential cache after successful sync
   cachedRowHashes = currentRowHashes;
   cachedSheetHash = sheetFingerprint;
+  cachedMappingString = currentMappingStr;
+  cachedSpreadsheetId = settings.selectedSpreadsheetId;
+  cachedSheetName = settings.selectedSheetName;
 
     return {
       synced,

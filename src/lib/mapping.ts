@@ -52,8 +52,9 @@ export async function computeIntelligentMapping(
     remark: [/^remark$/i, /^notes?$/i, /^comments?$/i, /remark|notes|comments/i],
     status: [/^status$/i, /^state$/i, /status|state/i],
     testDrive: [/^test\s?_?drive$/i, /^td$/i, /test\s?drive|td/i],
-    assignedConsultant: [/^assigned\s?_?consultant$/i, /^consultant$/i, /^sales\s?_?consultant$/i, /^sc$/i, /consultant|sales\s?person|advisor/i],
   };
+
+  mapping.assignedConsultant = -1; // Consultant assignment is CRM-managed, never mapped from sheet
 
   // Phase 1: Header Matching with Priority
   for (const [field, regexes] of Object.entries(regexMap)) {

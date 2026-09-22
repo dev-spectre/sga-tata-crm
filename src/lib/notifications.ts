@@ -6,7 +6,7 @@ import webpush from 'web-push';
 
 const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const privateVapidKey = process.env.VAPID_PRIVATE_KEY;
-const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@sgaskoda.com';
+const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@sgatata.com';
 
 if (publicVapidKey && privateVapidKey) {
   try {
@@ -158,31 +158,31 @@ export async function checkAndNotify() {
     // 3. Construct clean notification alert message and await push completion
     if (newLeadsSynced > 0) {
       await sendSystemNotification(
-        '🚗 SGA Skoda CRM — 🆕 New Lead Received!',
+        '🚗 SGA Tata CRM — 🆕 New Lead Received!',
         `Synced ${newLeadsSynced} new lead(s) automatically!`
       );
     } else if (pendingFollowUpsCount > 0) {
       if (pendingFollowUpsCount === 1 && firstPendingLead) {
         const cleanPhone = parsePhoneNumber(firstPendingLead.phone);
         await sendSystemNotification(
-          '📅 SGA Skoda CRM — Follow-up Due!',
+          '📅 SGA Tata CRM — Follow-up Due!',
           `Follow-up due for ${firstPendingLead.name} (${cleanPhone}) from ${firstPendingLead.city || 'Unknown'}`
         );
       } else {
         await sendSystemNotification(
-          `📅 SGA Skoda CRM — ${pendingFollowUpsCount} Follow-ups Due!`,
+          `📅 SGA Tata CRM — ${pendingFollowUpsCount} Follow-ups Due!`,
           `You have ${pendingFollowUpsCount} pending follow-up(s) due today needing action!`
         );
       }
     } else if (unclosedCount === 1 && firstUnclosedLead) {
       const cleanPhone = parsePhoneNumber(firstUnclosedLead.phone);
       await sendSystemNotification(
-        '🚗 SGA Skoda CRM — Open Lead',
+        '🚗 SGA Tata CRM — Open Lead',
         `${firstUnclosedLead.name} (${cleanPhone}) from ${firstUnclosedLead.city || 'Unknown'}`
       );
     } else {
       await sendSystemNotification(
-        '🚗 SGA Skoda CRM',
+        '🚗 SGA Tata CRM',
         `You have ${unclosedCount} open lead(s) needing attention!`
       );
     }
@@ -290,23 +290,23 @@ export async function processGradualNotifications() {
     }
 
     // 3. Construct notification content
-    let title = '🚗 SGA Skoda CRM';
+    let title = '🚗 SGA Tata CRM';
     let body = `${unclosedCount} open lead(s) needing attention!`;
     if (newLeadsSynced > 0) {
-      title = '🚗 SGA Skoda CRM — 🆕 New Lead Received!';
+      title = '🚗 SGA Tata CRM — 🆕 New Lead Received!';
       body = `Synced ${newLeadsSynced} new lead(s) automatically!`;
     } else if (pendingFollowUpsCount > 0) {
       if (pendingFollowUpsCount === 1 && firstPendingLead) {
         const cleanPhone = parsePhoneNumber(firstPendingLead.phone);
-        title = '📅 SGA Skoda CRM — Follow-up Due!';
+        title = '📅 SGA Tata CRM — Follow-up Due!';
         body = `Follow-up due for ${firstPendingLead.name} (${cleanPhone}) from ${firstPendingLead.city || 'Unknown'}`;
       } else {
-        title = `📅 SGA Skoda CRM — ${pendingFollowUpsCount} Follow-ups Due!`;
+        title = `📅 SGA Tata CRM — ${pendingFollowUpsCount} Follow-ups Due!`;
         body = `You have ${pendingFollowUpsCount} pending follow-up(s) due today needing action!`;
       }
     } else if (unclosedCount === 1 && firstUnclosedLead) {
       const cleanPhone = parsePhoneNumber(firstUnclosedLead.phone);
-      title = '🚗 SGA Skoda CRM — Open Lead';
+      title = '🚗 SGA Tata CRM — Open Lead';
       body = `${firstUnclosedLead.name} (${cleanPhone}) from ${firstUnclosedLead.city || 'Unknown'}`;
     }
 

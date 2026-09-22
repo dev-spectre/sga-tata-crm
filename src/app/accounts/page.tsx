@@ -86,10 +86,14 @@ export default function AccountsPage() {
     }
     try {
       const res = await fetch("/api/branches");
-      const data = await res.json();
-      if (res.ok && Array.isArray(data.branches)) {
-        cachedBranchesList = data.branches;
-        setBranches(data.branches);
+      if (res.ok) {
+        const branchList: string[] = Array.isArray(data.branchNames)
+          ? data.branchNames
+          : Array.isArray(data.branches)
+          ? data.branches.map((b: any) => (typeof b === "string" ? b : b.name))
+          : [];
+        cachedBranchesList = branchList;
+        setBranches(branchList);
       }
     } catch {
       // ignore
@@ -453,7 +457,7 @@ export default function AccountsPage() {
         <div className="table-container">
           <table className="leads-table" style={{ background: "#ffffff" }}>
             <thead>
-              <tr style={{ background: "rgba(16, 185, 129, 0.03)", borderBottom: "1px solid var(--border)" }}>
+              <tr style={{ background: "rgba(0, 114, 188, 0.03)", borderBottom: "1px solid var(--border)" }}>
                 <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
                   Account
                 </th>
@@ -491,14 +495,14 @@ export default function AccountsPage() {
                             width: 36,
                             height: 36,
                             borderRadius: "50%",
-                            background: u.role === "ADMIN" ? "rgba(16, 185, 129, 0.1)" : "rgba(37, 99, 235, 0.1)",
-                            color: u.role === "ADMIN" ? "#059669" : "#2563eb",
+                            background: u.role === "ADMIN" ? "rgba(0, 114, 188, 0.1)" : "rgba(37, 99, 235, 0.1)",
+                            color: u.role === "ADMIN" ? "#0072bc" : "#2563eb",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                             fontWeight: 700,
                             fontSize: 14,
-                            border: `1px solid ${u.role === "ADMIN" ? "rgba(16, 185, 129, 0.2)" : "rgba(37, 99, 235, 0.2)"}`,
+                            border: `1px solid ${u.role === "ADMIN" ? "rgba(0, 114, 188, 0.2)" : "rgba(37, 99, 235, 0.2)"}`,
                           }}
                         >
                           {u.username.charAt(0).toUpperCase()}
@@ -522,9 +526,9 @@ export default function AccountsPage() {
                           borderRadius: "20px",
                           fontSize: "12px",
                           fontWeight: 600,
-                          background: u.role === "ADMIN" ? "rgba(16, 185, 129, 0.12)" : "rgba(37, 99, 235, 0.12)",
-                          color: u.role === "ADMIN" ? "#059669" : "#2563eb",
-                          border: `1px solid ${u.role === "ADMIN" ? "rgba(16, 185, 129, 0.25)" : "rgba(37, 99, 235, 0.25)"}`,
+                          background: u.role === "ADMIN" ? "rgba(0, 114, 188, 0.12)" : "rgba(37, 99, 235, 0.12)",
+                          color: u.role === "ADMIN" ? "#0072bc" : "#2563eb",
+                          border: `1px solid ${u.role === "ADMIN" ? "rgba(0, 114, 188, 0.25)" : "rgba(37, 99, 235, 0.25)"}`,
                         }}
                       >
                         {u.role === "ADMIN" ? "👑 Admin (Full Access)" : "👤 Staff User (Soft Delete)"}
@@ -560,9 +564,9 @@ export default function AccountsPage() {
                             borderRadius: "6px",
                             fontSize: "12px",
                             fontWeight: 500,
-                            background: "rgba(16, 185, 129, 0.08)",
-                            color: "#059669",
-                            border: "1px solid rgba(16, 185, 129, 0.2)",
+                            background: "rgba(0, 114, 188, 0.08)",
+                            color: "#0072bc",
+                            border: "1px solid rgba(0, 114, 188, 0.2)",
                           }}
                         >
                           🌐 All Branches Unrestricted
@@ -599,9 +603,9 @@ export default function AccountsPage() {
                             borderRadius: "6px",
                             fontSize: "12px",
                             fontWeight: 500,
-                            background: "rgba(16, 185, 129, 0.08)",
-                            color: "#059669",
-                            border: "1px solid rgba(16, 185, 129, 0.2)",
+                            background: "rgba(0, 114, 188, 0.08)",
+                            color: "#0072bc",
+                            border: "1px solid rgba(0, 114, 188, 0.2)",
                           }}
                         >
                           🌐 All Platforms Unrestricted

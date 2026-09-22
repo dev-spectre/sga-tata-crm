@@ -122,9 +122,9 @@ export default function MultiSelectDropdown({
           padding: '0 10px',
           fontSize: 13,
           fontWeight: hasSelection ? 600 : 500,
-          background: hasSelection ? '#ecfdf5' : '#ffffff',
-          border: hasSelection ? '1.5px solid #10b981' : '1.5px solid #cbd5e1',
-          color: hasSelection ? '#047857' : '#475569',
+          background: hasSelection ? '#f0f9ff' : '#ffffff',
+          border: hasSelection ? '1.5px solid #0072bc' : '1.5px solid #cbd5e1',
+          color: hasSelection ? '#005086' : '#475569',
           borderRadius: 8,
           display: 'flex',
           alignItems: 'center',
@@ -134,7 +134,7 @@ export default function MultiSelectDropdown({
           whiteSpace: 'nowrap',
           transition: 'all 0.15s ease',
           userSelect: 'none',
-          boxShadow: isOpen ? '0 0 0 3px rgba(16, 185, 129, 0.15)' : 'none',
+          boxShadow: isOpen ? '0 0 0 3px rgba(0, 114, 188, 0.15)' : 'none',
           boxSizing: 'border-box',
         }}
       >
@@ -145,7 +145,7 @@ export default function MultiSelectDropdown({
             style={{
               fontSize: 10,
               fontWeight: 700,
-              background: '#10b981',
+              background: '#0072bc',
               color: '#ffffff',
               borderRadius: 10,
               padding: '1px 5px',
@@ -249,7 +249,7 @@ export default function MultiSelectDropdown({
                   style={{
                     border: 'none',
                     background: 'none',
-                    color: '#10b981',
+                    color: '#0072bc',
                     fontSize: 11,
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -333,19 +333,19 @@ export default function MultiSelectDropdown({
                             justifyContent: 'space-between',
                             padding: '5px 8px',
                             fontSize: 12.5,
-                            color: isChecked ? '#047857' : '#0f172a',
+                            color: isChecked ? '#005086' : '#0f172a',
                             borderRadius: 6,
                             cursor: 'pointer',
                             userSelect: 'none',
                             fontWeight: isChecked ? 600 : 400,
-                            background: isChecked ? '#ecfdf5' : '#ffffff',
+                            background: isChecked ? '#f0f9ff' : '#ffffff',
                             transition: 'background 0.1s ease',
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = isChecked ? '#d1fae5' : '#f1f5f9';
+                            e.currentTarget.style.background = isChecked ? '#e0f2fe' : '#f1f5f9';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = isChecked ? '#ecfdf5' : '#ffffff';
+                            e.currentTarget.style.background = isChecked ? '#f0f9ff' : '#ffffff';
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -354,8 +354,8 @@ export default function MultiSelectDropdown({
                                 width: 14,
                                 height: 14,
                                 borderRadius: 4,
-                                border: isChecked ? '1.5px solid #10b981' : '1.5px solid #cbd5e1',
-                                background: isChecked ? '#10b981' : '#ffffff',
+                                border: isChecked ? '1.5px solid #0072bc' : '1.5px solid #cbd5e1',
+                                background: isChecked ? '#0072bc' : '#ffffff',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -390,19 +390,19 @@ export default function MultiSelectDropdown({
                     justifyContent: 'space-between',
                     padding: '5px 8px',
                     fontSize: 12.5,
-                    color: isChecked ? '#047857' : '#0f172a',
+                    color: isChecked ? '#005086' : '#0f172a',
                     borderRadius: 6,
                     cursor: 'pointer',
                     userSelect: 'none',
                     fontWeight: isChecked ? 600 : 400,
-                    background: isChecked ? '#ecfdf5' : '#ffffff',
+                    background: isChecked ? '#f0f9ff' : '#ffffff',
                     transition: 'background 0.1s ease',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isChecked ? '#d1fae5' : '#f1f5f9';
+                    e.currentTarget.style.background = isChecked ? '#e0f2fe' : '#f1f5f9';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isChecked ? '#ecfdf5' : '#ffffff';
+                    e.currentTarget.style.background = isChecked ? '#f0f9ff' : '#ffffff';
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -411,8 +411,8 @@ export default function MultiSelectDropdown({
                         width: 14,
                         height: 14,
                         borderRadius: 4,
-                        border: isChecked ? '1.5px solid #10b981' : '1.5px solid #cbd5e1',
-                        background: isChecked ? '#10b981' : '#ffffff',
+                        border: isChecked ? '1.5px solid #0072bc' : '1.5px solid #cbd5e1',
+                        background: isChecked ? '#0072bc' : '#ffffff',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',

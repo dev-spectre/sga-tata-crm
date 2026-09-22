@@ -1,4 +1,4 @@
-// SGA Skoda CRM - Web Push Service Worker
+// SGA Tata CRM - Web Push Service Worker
 
 self.addEventListener('push', function(event) {
   let data = {};
@@ -6,16 +6,16 @@ self.addEventListener('push', function(event) {
     try {
       data = event.data.json();
     } catch (e) {
-      data = { title: '🚗 SGA Skoda CRM', body: event.data.text() };
+      data = { title: '🚗 SGA Tata CRM', body: event.data.text() };
     }
   }
 
-  const title = data.title || '🚗 SGA Skoda CRM';
+  const title = data.title || '🚗 SGA Tata CRM';
   const options = {
     body: data.body || 'New Lead Received!',
     icon: '/favicon.ico',
     badge: '/favicon.ico',
-    tag: 'sga-skoda-lead-alert',
+    tag: 'sga-tata-lead-alert',
     renotify: true,
     vibrate: [200, 100, 200],
     data: data.url || '/dashboard',

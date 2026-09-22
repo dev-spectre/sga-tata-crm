@@ -33,6 +33,12 @@ export async function GET(request: NextRequest) {
       branch = currentUser.assignedBranch;
     }
 
+    const activeBranches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: { name: true },
+    });
+    const activeBranchNames = activeBranches.map((b: { name: string }) => b.name);
+
     if (category === 'priority') {
       const now = new Date();
       const istFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -46,7 +52,7 @@ export async function GET(request: NextRequest) {
 
       where.AND = [
         ...(where.AND || []),
-        { branch: { notIn: ['', 'Unassigned'] } },
+        { branch: { in: activeBranchNames } },
         {
           OR: [
             { followUpDate1: { lte: todayEndOfDay } },
@@ -57,12 +63,12 @@ export async function GET(request: NextRequest) {
     } else if (category === 'valid') {
       where.AND = [
         ...(where.AND || []),
-        { branch: { notIn: ['', 'Unassigned'] } },
+        { branch: { in: activeBranchNames } },
       ];
     } else if (category === 'unassigned') {
       where.AND = [
         ...(where.AND || []),
-        { branch: { in: ['', 'Unassigned'] } },
+        { branch: { notIn: activeBranchNames } },
       ];
     }
 
@@ -234,6 +240,7 @@ export async function GET(request: NextRequest) {
                 select: { id: true, username: true }
               },
               uploadedAt: true,
+              isBranchManual: true,
               createdAt: true,
               updatedAt: true,
             },

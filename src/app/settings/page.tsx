@@ -73,7 +73,7 @@ function SettingsContent() {
     remark: 4,
     status: 5,
     adname: 6,
-    branch: 7,
+    branch: -1,
     followUpDate1: 8,
     followUpDate2: 9,
     platform: 10,
@@ -108,10 +108,10 @@ function SettingsContent() {
 
   const generateAppsScriptCode = (url: string) => `/**
  * ==========================================================
- *  SGA SKODA CRM — REAL-TIME GOOGLE SHEET WEBHOOK
+ *  SGA TATA CRM — REAL-TIME GOOGLE SHEET WEBHOOK
  * ==========================================================
  * Automatically triggers instant data fetch of new leads
- * directly into your SGA Skoda CRM when added to this sheet.
+ * directly into your SGA Tata CRM when added to this sheet.
  *
  * SETUP GUIDE:
  * 1. In Google Sheets: Click Extensions > Apps Script
@@ -522,6 +522,27 @@ function onFormSubmit(e) {
     }
   };
 
+  const handleSyncSheet = async () => {
+    setSaving(true);
+    try {
+      showToast("Syncing Google Sheet with current mapping...");
+      const res = await fetch("/api/sheets/sync", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        let msg = `Synced ${data.synced || 0} new lead(s)`;
+        if (data.duplicates > 0) msg += `, updated ${data.duplicates} existing lead(s)`;
+        showToast(msg);
+        fetchSettings();
+      } else {
+        showToast(data.error || "Failed to sync sheet", "error");
+      }
+    } catch {
+      showToast("Failed to sync sheet", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSaveMapping = async () => {
     setSaving(true);
     try {
@@ -531,7 +552,22 @@ function onFormSubmit(e) {
         body: JSON.stringify({ columnMapping: mapping }),
       });
       if (res.ok) {
-        showToast("Column mapping saved successfully!");
+        showToast("Column mapping saved! Re-syncing existing leads with updated mapping...");
+        try {
+          const syncRes = await fetch("/api/sheets/sync", { method: "POST" });
+          const syncData = await syncRes.json();
+          if (syncRes.ok) {
+            let msg = "Column mapping saved!";
+            if (syncData.duplicates > 0) msg += ` Updated ${syncData.duplicates} previous lead(s) with new mapping.`;
+            if (syncData.synced > 0) msg += ` Synced ${syncData.synced} new lead(s).`;
+            showToast(msg);
+          } else {
+            showToast("Mapping saved, but sync reported: " + (syncData.error || "failed"), "error");
+          }
+        } catch {
+          showToast("Mapping saved! (Manual sync recommended)", "error");
+        }
+        fetchSettings();
       } else {
         showToast("Failed to save mapping", "error");
       }
@@ -715,9 +751,19 @@ function onFormSubmit(e) {
             </div>
           </div>
           {settings?.lastSyncAt && (
-            <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 12 }}>
-              Last synced: {new Date(settings.lastSyncAt).toLocaleString("en-IN")}
-            </p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, flexWrap: "wrap", gap: 8 }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+                Last synced: {new Date(settings.lastSyncAt).toLocaleString("en-IN")}
+              </p>
+              <button
+                className="btn btn-secondary"
+                onClick={handleSyncSheet}
+                disabled={!isAdmin || saving}
+                style={{ fontSize: 12, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                🔄 Resync Sheet Now
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1040,10 +1086,10 @@ function onFormSubmit(e) {
                     field.required && !isMapped
                       ? "rgba(239, 68, 68, 0.5)"
                       : isMapped
-                      ? "rgba(16, 185, 129, 0.4)"
+                      ? "rgba(0, 114, 188, 0.4)"
                       : "var(--border)"
                   }`,
-                  background: isMapped ? "rgba(16, 185, 129, 0.03)" : "var(--bg-card)",
+                  background: isMapped ? "rgba(0, 114, 188, 0.03)" : "var(--bg-card)",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -1053,7 +1099,7 @@ function onFormSubmit(e) {
                     {field.required && <span style={{ color: "#ef4444" }}>*</span>}
                   </label>
                   {isMapped && (
-                    <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>
+                    <span style={{ fontSize: 10, color: "#0072bc", fontWeight: 700 }}>
                       ✓ Mapped
                     </span>
                   )}
@@ -1101,7 +1147,18 @@ function onFormSubmit(e) {
           })}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20, gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20, gap: 12, flexWrap: "wrap" }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleSyncSheet}
+            disabled={!isAdmin || saving || !settings?.selectedSpreadsheetId}
+            style={{
+              padding: "10px 18px",
+              fontWeight: 600,
+            }}
+          >
+            {saving ? "Syncing..." : "🔄 Resync Sheet Now"}
+          </button>
           <button
             className="btn btn-primary"
             onClick={handleSaveMapping}
@@ -1111,7 +1168,7 @@ function onFormSubmit(e) {
               fontWeight: 700,
             }}
           >
-            {isAdmin ? (saving ? "Saving..." : "💾 Save Mapping") : "🔒 Admin Only"}
+            {isAdmin ? (saving ? "Saving & Syncing..." : "💾 Save Mapping & Sync") : "🔒 Admin Only"}
           </button>
         </div>
       </div>

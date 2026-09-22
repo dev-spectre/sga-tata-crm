@@ -44,13 +44,16 @@ export default function BranchConsultantPicker({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const hoverLeaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Safe branch name extractor
+  const getBranchName = (b: unknown): string => (typeof b === "string" ? b : ((b as { name?: string })?.name || "")).trim();
+
   // Group consultants by branch
   const branchMap = useMemo(() => {
     const map = new Map<string, ConsultantOption[]>();
 
     // Initialize with all unique branches
     branches.forEach((b) => {
-      const trimmed = b.trim();
+      const trimmed = getBranchName(b);
       if (trimmed && !map.has(trimmed.toLowerCase())) {
         map.set(trimmed.toLowerCase(), []);
       }
@@ -59,7 +62,8 @@ export default function BranchConsultantPicker({
     // Add consultants into matching branch
     consultants.forEach((c) => {
       if (!c.branch) return;
-      const key = c.branch.trim().toLowerCase();
+      const key = getBranchName(c.branch).toLowerCase();
+      if (!key) return;
       if (!map.has(key)) {
         map.set(key, []);
       }
@@ -73,8 +77,8 @@ export default function BranchConsultantPicker({
   const uniqueBranchesList = useMemo(() => {
     const map = new Map<string, string>();
 
-    const addBranch = (b: string) => {
-      const trimmed = b.trim();
+    const addBranch = (b: unknown) => {
+      const trimmed = getBranchName(b);
       if (!trimmed) return;
       const key = trimmed.toLowerCase();
       if (!map.has(key)) {
@@ -172,8 +176,10 @@ export default function BranchConsultantPicker({
       setTimeout(() => searchInputRef.current?.focus(), 50);
       updateFlyoutPlacement();
     } else {
-      setSearchTerm("");
-      setHoveredBranch(null);
+      setTimeout(() => {
+        setSearchTerm("");
+        setHoveredBranch(null);
+      }, 0);
     }
   }, [isOpen, updateFlyoutPlacement]);
 
@@ -270,8 +276,8 @@ export default function BranchConsultantPicker({
           justifyContent: "space-between",
           gap: "8px",
           padding: "9px 12px",
-          background: isFiltered ? "rgba(16, 185, 129, 0.06)" : "var(--bg-glass, #ffffff)",
-          border: isFiltered ? "1.5px solid var(--primary, #10b981)" : "1.5px solid var(--border, #cbd5e1)",
+          background: isFiltered ? "rgba(0, 114, 188, 0.06)" : "var(--bg-glass, #ffffff)",
+          border: isFiltered ? "1.5px solid var(--primary, #0072bc)" : "1.5px solid var(--border, #cbd5e1)",
           borderRadius: "8px",
           fontSize: "13px",
           fontWeight: isFiltered ? 600 : 500,
@@ -279,7 +285,7 @@ export default function BranchConsultantPicker({
           cursor: "pointer",
           outline: "none",
           transition: "all 0.15s ease",
-          boxShadow: isOpen ? "0 0 0 3px rgba(16, 185, 129, 0.15)" : "none",
+          boxShadow: isOpen ? "0 0 0 3px rgba(0, 114, 188, 0.15)" : "none",
           textAlign: "left",
         }}
       >
@@ -287,7 +293,7 @@ export default function BranchConsultantPicker({
           <svg
             viewBox="0 0 24 24"
             fill="none"
-            stroke={isFiltered ? "var(--primary, #10b981)" : "var(--text-muted, #94a3b8)"}
+            stroke={isFiltered ? "var(--primary, #0072bc)" : "var(--text-muted, #94a3b8)"}
             strokeWidth="2"
             style={{ width: 16, height: 16, flexShrink: 0 }}
           >
@@ -436,8 +442,8 @@ export default function BranchConsultantPicker({
                   padding: "7px 10px",
                   borderRadius: "6px",
                   border: "none",
-                  background: !selectedBranch && !selectedConsultant ? "rgba(16, 185, 129, 0.12)" : "transparent",
-                  color: !selectedBranch && !selectedConsultant ? "var(--primary-dark, #059669)" : "var(--text-primary, #0f172a)",
+                  background: !selectedBranch && !selectedConsultant ? "rgba(0, 114, 188, 0.12)" : "transparent",
+                  color: !selectedBranch && !selectedConsultant ? "var(--primary-dark, #005086)" : "var(--text-primary, #0f172a)",
                   fontWeight: !selectedBranch && !selectedConsultant ? 700 : 500,
                   fontSize: "12.5px",
                   cursor: "pointer",
@@ -455,7 +461,7 @@ export default function BranchConsultantPicker({
                   <span>🌐</span>
                   <span>All Branches & Consultants</span>
                 </div>
-                {!selectedBranch && !selectedConsultant && <span style={{ color: "var(--primary, #10b981)", fontSize: "13px" }}>✓</span>}
+                {!selectedBranch && !selectedConsultant && <span style={{ color: "var(--primary, #0072bc)", fontSize: "13px" }}>✓</span>}
               </button>
 
               {showUnassigned && (
@@ -470,8 +476,8 @@ export default function BranchConsultantPicker({
                     padding: "7px 10px",
                     borderRadius: "6px",
                     border: "none",
-                    background: selectedConsultant === "Unassigned" ? "rgba(16, 185, 129, 0.12)" : "transparent",
-                    color: selectedConsultant === "Unassigned" ? "var(--primary-dark, #059669)" : "var(--text-primary, #0f172a)",
+                    background: selectedConsultant === "Unassigned" ? "rgba(0, 114, 188, 0.12)" : "transparent",
+                    color: selectedConsultant === "Unassigned" ? "var(--primary-dark, #005086)" : "var(--text-primary, #0f172a)",
                     fontWeight: selectedConsultant === "Unassigned" ? 700 : 500,
                     fontSize: "12.5px",
                     cursor: "pointer",
@@ -489,7 +495,7 @@ export default function BranchConsultantPicker({
                     <span>👤</span>
                     <span>Unassigned Leads</span>
                   </div>
-                  {selectedConsultant === "Unassigned" && <span style={{ color: "var(--primary, #10b981)", fontSize: "13px" }}>✓</span>}
+                  {selectedConsultant === "Unassigned" && <span style={{ color: "var(--primary, #0072bc)", fontSize: "13px" }}>✓</span>}
                 </button>
               )}
             </div>
@@ -530,11 +536,11 @@ export default function BranchConsultantPicker({
                       background: isHovered
                         ? "#f1f5f9"
                         : isBranchActive
-                        ? "rgba(16, 185, 129, 0.08)"
+                        ? "rgba(0, 114, 188, 0.08)"
                         : "transparent",
                       cursor: "pointer",
                       transition: "background 0.12s",
-                      border: isBranchActive && !selectedConsultant ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid transparent",
+                      border: isBranchActive && !selectedConsultant ? "1px solid rgba(0, 114, 188, 0.3)" : "1px solid transparent",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
@@ -543,7 +549,7 @@ export default function BranchConsultantPicker({
                         style={{
                           fontSize: "13px",
                           fontWeight: isBranchActive ? 700 : 500,
-                          color: isBranchActive ? "var(--primary-dark, #059669)" : "var(--text-primary, #0f172a)",
+                          color: isBranchActive ? "var(--primary-dark, #005086)" : "var(--text-primary, #0f172a)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -560,8 +566,8 @@ export default function BranchConsultantPicker({
                           fontWeight: 600,
                           padding: "2px 6px",
                           borderRadius: "10px",
-                          background: branchConsultants.length > 0 ? "rgba(16, 185, 129, 0.12)" : "#f1f5f9",
-                          color: branchConsultants.length > 0 ? "var(--primary-dark, #059669)" : "#94a3b8",
+                          background: branchConsultants.length > 0 ? "rgba(0, 114, 188, 0.12)" : "#f1f5f9",
+                          color: branchConsultants.length > 0 ? "var(--primary-dark, #005086)" : "#94a3b8",
                         }}
                       >
                         {branchConsultants.length}
@@ -574,7 +580,7 @@ export default function BranchConsultantPicker({
                         style={{
                           width: 12,
                           height: 12,
-                          color: isHovered ? "var(--primary, #10b981)" : "#94a3b8",
+                          color: isHovered ? "var(--primary, #0072bc)" : "#94a3b8",
                           transform: isHovered ? "translateX(2px)" : "none",
                           transition: "transform 0.15s",
                         }}
@@ -653,11 +659,11 @@ export default function BranchConsultantPicker({
                   border: "none",
                   background:
                     selectedBranch.toLowerCase() === hoveredBranch.toLowerCase() && !selectedConsultant
-                      ? "rgba(16, 185, 129, 0.12)"
+                      ? "rgba(0, 114, 188, 0.12)"
                       : "transparent",
                   color:
                     selectedBranch.toLowerCase() === hoveredBranch.toLowerCase() && !selectedConsultant
-                      ? "var(--primary-dark, #059669)"
+                      ? "var(--primary-dark, #005086)"
                       : "var(--text-primary, #0f172a)",
                   fontWeight:
                     selectedBranch.toLowerCase() === hoveredBranch.toLowerCase() && !selectedConsultant
@@ -685,7 +691,7 @@ export default function BranchConsultantPicker({
                   <span>All {hoveredBranch} Leads</span>
                 </div>
                 {selectedBranch.toLowerCase() === hoveredBranch.toLowerCase() && !selectedConsultant && (
-                  <span style={{ color: "var(--primary, #10b981)", fontSize: "13px" }}>✓</span>
+                  <span style={{ color: "var(--primary, #0072bc)", fontSize: "13px" }}>✓</span>
                 )}
               </button>
 
@@ -720,8 +726,8 @@ export default function BranchConsultantPicker({
                           padding: "7px 10px",
                           borderRadius: "6px",
                           border: "none",
-                          background: isConsultantActive ? "rgba(16, 185, 129, 0.12)" : "transparent",
-                          color: isConsultantActive ? "var(--primary-dark, #059669)" : "var(--text-primary, #0f172a)",
+                          background: isConsultantActive ? "rgba(0, 114, 188, 0.12)" : "transparent",
+                          color: isConsultantActive ? "var(--primary-dark, #005086)" : "var(--text-primary, #0f172a)",
                           fontWeight: isConsultantActive ? 700 : 500,
                           fontSize: "12.5px",
                           cursor: "pointer",
@@ -741,8 +747,8 @@ export default function BranchConsultantPicker({
                               width: 22,
                               height: 22,
                               borderRadius: "50%",
-                              background: "rgba(16, 185, 129, 0.15)",
-                              color: "var(--primary-dark, #059669)",
+                              background: "rgba(0, 114, 188, 0.15)",
+                              color: "var(--primary-dark, #005086)",
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
@@ -765,7 +771,7 @@ export default function BranchConsultantPicker({
                             </span>
                           )}
                           {isConsultantActive && (
-                            <span style={{ color: "var(--primary, #10b981)", fontSize: "13px" }}>✓</span>
+                            <span style={{ color: "var(--primary, #0072bc)", fontSize: "13px" }}>✓</span>
                           )}
                         </div>
                       </button>

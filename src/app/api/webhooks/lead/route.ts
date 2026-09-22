@@ -43,12 +43,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Nearest branch routing for inbound webhook leads
-    let assignedBranch = rawBranch;
+    let activeBranches: any[] = [];
+    try {
+      activeBranches = await prisma.branch.findMany({ where: { isActive: true } });
+    } catch (err) {
+      console.error('Failed to fetch active branches in webhook:', err);
+    }
+    const matchedBranch = activeBranches.find(
+      (b) => b.name.toLowerCase() === rawBranch.toLowerCase().trim() ||
+             (b.code && b.code.toLowerCase() === rawBranch.toLowerCase().trim())
+    );
+    let assignedBranch = matchedBranch ? matchedBranch.name : '';
     let routingResult = null;
     const locationInput = parsedCity || (body.zipcode || body.location || '').toString().trim();
     if (!assignedBranch && locationInput) {
       try {
-        routingResult = await routeLeadToBranch(locationInput);
+        routingResult = await routeLeadToBranch(locationInput, { candidateBranches: activeBranches });
         if (routingResult.status === 'assigned' && routingResult.assignedBranch) {
           assignedBranch = routingResult.assignedBranch.name;
         }

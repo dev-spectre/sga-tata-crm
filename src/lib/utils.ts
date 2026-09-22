@@ -48,6 +48,17 @@ export function parsePhoneNumber(rawPhone: string | null | undefined): string {
   return digitsOnly || cleaned;
 }
 
+export function isInvalidPhoneNumber(phone: string | null | undefined): boolean {
+  if (!phone) return true;
+  const parsed = parsePhoneNumber(phone);
+  if (!parsed || parsed === 'Test Lead Phone') return true;
+  const parsedDigits = parsed.replace(/\D/g, '');
+  if (parsedDigits.length !== 10) return true;
+  const rawDigits = String(phone).replace(/\D/g, '');
+  if (rawDigits.length > 10 && parsed.length > 10) return true;
+  return false;
+}
+
 export function sanitizeField(rawVal: string | null | undefined): string {
   if (!rawVal) return '';
   let str = String(rawVal).trim();

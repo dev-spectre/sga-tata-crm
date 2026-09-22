@@ -319,12 +319,28 @@ export async function GET(request: NextRequest) {
     const todayDateStr = kolkataFormatter.format(now);
     const todayEndOfDay = new Date(`${todayDateStr}T23:59:59.999+05:30`);
 
+    const activeBranches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        city: true,
+        latitude: true,
+        longitude: true,
+        radiusKm: true,
+        isActive: true,
+      },
+    });
+    const activeBranchNames = activeBranches.map((b: { name: string }) => b.name);
+    const activeBranchSet = new Set(activeBranches.map((b: { name: string }) => b.name.toLowerCase().trim()));
+
     const validBranchCondition: any = {
-      branch: { notIn: ['', 'Unassigned'] },
+      branch: { in: activeBranchNames },
     };
 
     const unassignedBranchCondition: any = {
-      branch: { in: ['', 'Unassigned'] },
+      branch: { notIn: activeBranchNames },
     };
 
     const priorityFollowUpCondition: any = {
@@ -388,6 +404,7 @@ export async function GET(request: NextRequest) {
         select: { id: true, username: true }
       },
       uploadedAt: true,
+      isBranchManual: true,
       createdAt: true,
       updatedAt: true,
     };
@@ -519,6 +536,15 @@ export async function GET(request: NextRequest) {
           lostLeads += count;
         }
       });
+    }
+
+    // In-memory sanitization: ensure any leftover invalid branch string (ad name) is sanitized to ''
+    // Geocoding of visible leads is handled asynchronously/slowly via /api/leads/geocode
+    for (const lead of leads) {
+      const currentBranchTrimmed = (lead.branch || '').toLowerCase().trim();
+      if (currentBranchTrimmed && !activeBranchSet.has(currentBranchTrimmed)) {
+        lead.branch = '';
+      }
     }
 
     let enrichedLeads: any[] = leads;

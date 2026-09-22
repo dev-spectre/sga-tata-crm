@@ -49,7 +49,6 @@ function BranchModalContent({
   const [longitude, setLongitude] = useState(
     initialData?.longitude !== null && initialData?.longitude !== undefined ? String(initialData.longitude) : ""
   );
-  const [radiusKm, setRadiusKm] = useState(String(initialData?.radiusKm || 50));
   const [isActive, setIsActive] = useState(initialData?.isActive ?? true);
 
   const [loading, setLoading] = useState(false);
@@ -127,13 +126,6 @@ function BranchModalContent({
       return;
     }
 
-    // Radius validation
-    const parsedRad = Number(radiusKm);
-    if (isNaN(parsedRad) || parsedRad <= 0) {
-      setError("Service radius must be a positive number of kilometers");
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -144,7 +136,6 @@ function BranchModalContent({
         address: address.trim(),
         latitude: parsedLat,
         longitude: parsedLng,
-        radiusKm: parsedRad,
         isActive,
       };
 
@@ -515,35 +506,19 @@ function BranchModalContent({
             )}
           </div>
 
-          {/* Service Radius & Active Toggle */}
+          {/* Statewide Coverage & Active Toggle */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
-            <div>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>
-                Service Radius (km)
-              </label>
-              <input
-                type="number"
-                step="1"
-                min="1"
-                placeholder="50"
-                value={radiusKm}
-                onChange={(e) => setRadiusKm(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "9px 12px",
-                  borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--border)",
-                  fontSize: 14,
-                  outline: "none",
-                }}
-              />
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-                Primary catchment perimeter
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "var(--radius-sm)", padding: "10px 14px" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--success)", display: "flex", alignItems: "center", gap: 6 }}>
+                <span>🌐</span> Coverage: All Tamil Nadu
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                No radius limits. Leads in Tamil Nadu automatically map to nearest active branch.
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "10px 14px" }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>
                 Operational Status
               </label>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
@@ -554,7 +529,7 @@ function BranchModalContent({
                   style={{ width: 16, height: 16, accentColor: "var(--primary)" }}
                 />
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>
-                  Active for Lead Auto-Routing
+                  Active for Auto-Routing
                 </span>
               </label>
             </div>

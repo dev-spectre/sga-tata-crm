@@ -58,7 +58,7 @@ export default function ConsultantsPage() {
   const [branches, setBranches] = useState<string[]>(() => cachedBranchesList || []);
   const [loading, setLoading] = useState(() => !cachedConsultantsList);
   const [loadingConsultants, setLoadingConsultants] = useState(false);
-  const [userRole, setUserRole] = useState<string>(() => cachedMeRole || "USER");
+  const [, setUserRole] = useState<string>(() => cachedMeRole || "USER");
   const [accessDenied, setAccessDenied] = useState(false);
 
   // Filters for Performance tab
@@ -143,17 +143,20 @@ export default function ConsultantsPage() {
       const res = await fetch("/api/branches");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.branches)) {
-          cachedBranchesList = data.branches;
-          setBranches(data.branches);
-        }
+        const branchList: string[] = Array.isArray(data.branchNames)
+          ? data.branchNames
+          : Array.isArray(data.branches)
+          ? data.branches.map((b: { name: string } | string) => typeof b === "string" ? b : b.name)
+          : [];
+        cachedBranchesList = branchList;
+        setBranches(branchList);
       }
     } catch (e) {
       console.error("Failed to fetch branches:", e);
     }
   }, []);
 
-  const fetchInitialData = async (force = false) => {
+  const fetchInitialData = useCallback(async (force = false) => {
     if (!force && cachedConsultantsList && Date.now() - consultantsCacheTimestamp < CACHE_TTL_CONSULTANTS) {
       setLoading(false);
       return;
@@ -165,7 +168,8 @@ export default function ConsultantsPage() {
       if (meData.user) {
         cachedMeRole = meData.user.role;
         setUserRole(meData.user.role);
-        if (meData.user.role !== "ADMIN" && meData.user.role !== "SUPERADMIN") {
+        const isAdmin = meData.user.role === "ADMIN" || meData.user.role === "SUPERADMIN" || Boolean(meData.user.isSuperAdmin);
+        if (!isAdmin) {
           setAccessDenied(true);
           setLoading(false);
           return;
@@ -183,13 +187,14 @@ export default function ConsultantsPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-
+  }, [fetchPerformanceData, fetchConsultantsList, fetchBranches]);
 
   useEffect(() => {
-    fetchInitialData();
-  }, []);
+    const timer = setTimeout(() => {
+      fetchInitialData();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchInitialData]);
 
   const registeredConsultantsSet = useMemo(() => {
     return new Set(consultants.map((c) => c.name.toLowerCase().trim()));
@@ -600,7 +605,7 @@ export default function ConsultantsPage() {
               style={{
                 fontSize: "11px",
                 fontWeight: 700,
-                background: activeTab === "manage" ? "rgba(16, 185, 129, 0.15)" : "var(--border)",
+                background: activeTab === "manage" ? "rgba(0, 114, 188, 0.15)" : "var(--border)",
                 color: activeTab === "manage" ? "var(--primary)" : "var(--text-secondary)",
                 padding: "2px 8px",
                 borderRadius: "12px",
@@ -881,14 +886,14 @@ export default function ConsultantsPage() {
                                   width: 34,
                                   height: 34,
                                   borderRadius: "50%",
-                                  background: isUnassigned ? "rgba(100, 116, 139, 0.15)" : "rgba(16, 185, 129, 0.15)",
-                                  color: isUnassigned ? "#475569" : "#059669",
+                                  background: isUnassigned ? "rgba(100, 116, 139, 0.15)" : "rgba(0, 114, 188, 0.15)",
+                                  color: isUnassigned ? "#475569" : "#0072bc",
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
                                   fontWeight: 700,
                                   fontSize: 13,
-                                  border: `1px solid ${isUnassigned ? "rgba(100, 116, 139, 0.25)" : "rgba(16, 185, 129, 0.3)"}`,
+                                  border: `1px solid ${isUnassigned ? "rgba(100, 116, 139, 0.25)" : "rgba(0, 114, 188, 0.3)"}`,
                                 }}
                               >
                                 {isUnassigned ? "?" : stat.consultant.charAt(0).toUpperCase()}
@@ -1034,9 +1039,9 @@ export default function ConsultantsPage() {
                                 onClick={() => handleViewConsultantLeads(stat.consultant, "Scheduled,Completed")}
                                 title="View Scheduled & Completed Test Drives"
                                 style={{
-                                  border: "1px solid rgba(16, 185, 129, 0.3)",
-                                  background: "#ecfdf5",
-                                  color: "#047857",
+                                  border: "1px solid rgba(0, 114, 188, 0.25)",
+                                  background: "#f0f9ff",
+                                  color: "#005086",
                                   borderRadius: "6px",
                                   padding: "3px 6px",
                                   cursor: "pointer",
@@ -1048,12 +1053,12 @@ export default function ConsultantsPage() {
                                   transition: "all 0.15s ease",
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = "#10b981";
+                                  e.currentTarget.style.background = "#0072bc";
                                   e.currentTarget.style.color = "#ffffff";
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = "#ecfdf5";
-                                  e.currentTarget.style.color = "#047857";
+                                  e.currentTarget.style.background = "#f0f9ff";
+                                  e.currentTarget.style.color = "#005086";
                                 }}
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 13, height: 13 }}>
@@ -1269,14 +1274,14 @@ export default function ConsultantsPage() {
                                 width: 36,
                                 height: 36,
                                 borderRadius: "50%",
-                                background: "rgba(16, 185, 129, 0.12)",
+                                background: "rgba(0, 114, 188, 0.12)",
                                 color: "var(--primary-dark)",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
                                 fontWeight: 700,
                                 fontSize: 14,
-                                border: "1px solid rgba(16, 185, 129, 0.25)",
+                                border: "1px solid rgba(0, 114, 188, 0.25)",
                               }}
                             >
                               {c.name.charAt(0).toUpperCase()}
@@ -1316,8 +1321,8 @@ export default function ConsultantsPage() {
                               borderRadius: "20px",
                               fontSize: "12px",
                               fontWeight: 700,
-                              background: (c.leadsCount || 0) > 0 ? "rgba(16, 185, 129, 0.12)" : "rgba(100, 116, 139, 0.1)",
-                              color: (c.leadsCount || 0) > 0 ? "#059669" : "#64748b",
+                              background: (c.leadsCount || 0) > 0 ? "rgba(0, 114, 188, 0.12)" : "rgba(100, 116, 139, 0.1)",
+                              color: (c.leadsCount || 0) > 0 ? "#0072bc" : "#64748b",
                             }}
                           >
                             {c.leadsCount || 0} {(c.leadsCount === 1 ? "lead" : "leads")}

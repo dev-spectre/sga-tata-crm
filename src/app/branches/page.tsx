@@ -31,6 +31,7 @@ export default function BranchesPage() {
   const [editBranch, setEditBranch] = useState<Branch | null>(null);
   const [deactivateBranch, setDeactivateBranch] = useState<Branch | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [mappingLeads, setMappingLeads] = useState(false);
 
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -57,32 +58,27 @@ export default function BranchesPage() {
       .catch(() => setAccessDenied(true));
   }, []);
 
-  // Fetch branches on mount
-  useEffect(() => {
-    let ignore = false;
+  // Fetch branches
+  const fetchBranches = useCallback(() => {
     fetch("/api/branches?includeInactive=true")
       .then((res) => res.json())
       .then((data) => {
-        if (!ignore) {
-          if (Array.isArray(data.branches)) {
-            setBranches(data.branches);
-          } else if (data.error) {
-            showToast(data.error, "error");
-          }
-          setLoading(false);
+        if (Array.isArray(data.branches)) {
+          setBranches(data.branches);
+        } else if (data.error) {
+          showToast(data.error, "error");
         }
+        setLoading(false);
       })
       .catch(() => {
-        if (!ignore) {
-          showToast("Network error fetching branches", "error");
-          setLoading(false);
-        }
+        showToast("Network error fetching branches", "error");
+        setLoading(false);
       });
-
-    return () => {
-      ignore = true;
-    };
   }, [showToast]);
+
+  useEffect(() => {
+    fetchBranches();
+  }, [fetchBranches]);
 
   // Metric counts
   const totalCount = branches.length;
@@ -172,6 +168,30 @@ export default function BranchesPage() {
       return [savedBranch, ...prev];
     });
     showToast(`Branch "${savedBranch.name}" saved successfully`);
+  };
+
+  const handleMapLeads = async () => {
+    if (!window.confirm("Map all Tamil Nadu leads to their nearest active branch? Leads outside Tamil Nadu will remain unassigned.")) {
+      return;
+    }
+    setMappingLeads(true);
+    try {
+      showToast("Mapping all Tamil Nadu leads to closest active branches...");
+      const res = await fetch("/api/branches/map-leads", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(
+          `Mapped ${data.assigned || 0} leads! (${data.outOfState || 0} out-of-state leads kept unassigned)`
+        );
+        fetchBranches();
+      } else {
+        showToast(data.error || "Failed to map leads", "error");
+      }
+    } catch {
+      showToast("Failed to map leads", "error");
+    } finally {
+      setMappingLeads(false);
+    }
   };
 
   if (accessDenied) {
@@ -306,40 +326,65 @@ export default function BranchesPage() {
             </h1>
           </div>
           <p style={{ color: "var(--text-secondary)", fontSize: 14 }}>
-            Manage showroom & service center locations, coordinates, and catchment radii for automated nearest-branch routing.
+            Manage showroom & service center locations and GPS coordinates for automated nearest-branch routing across all of Tamil Nadu.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            setEditBranch(null);
-            setCreateModalOpen(true);
-          }}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: "var(--primary)",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "var(--radius-sm)",
-            padding: "10px 18px",
-            fontWeight: 600,
-            fontSize: 14,
-            cursor: "pointer",
-            boxShadow: "0 4px 14px rgba(0, 114, 188, 0.3)",
-            transition: "all 0.15s ease",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 16, height: 16 }}>
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          Add Branch
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={handleMapLeads}
+            disabled={mappingLeads}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(16, 185, 129, 0.12)",
+              color: "var(--success)",
+              border: "1px solid rgba(16, 185, 129, 0.3)",
+              borderRadius: "var(--radius-sm)",
+              padding: "10px 18px",
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: mappingLeads ? "not-allowed" : "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <span>⚡</span>
+            {mappingLeads ? "Mapping Leads..." : "Map Leads to Nearest Branch"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEditBranch(null);
+              setCreateModalOpen(true);
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "var(--primary)",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              padding: "10px 18px",
+              fontWeight: 600,
+              fontSize: 14,
+              cursor: "pointer",
+              boxShadow: "0 4px 14px rgba(0, 114, 188, 0.3)",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 16, height: 16 }}>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add Branch
+          </button>
+        </div>
       </div>
 
       {/* Metric Cards Grid */}
@@ -558,7 +603,7 @@ export default function BranchesPage() {
                   GPS Coordinates
                 </th>
                 <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Radius
+                  Coverage
                 </th>
                 <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", textTransform: "uppercase", textAlign: "right" }}>
                   Actions
@@ -759,10 +804,22 @@ export default function BranchesPage() {
                         )}
                       </td>
 
-                      {/* Radius */}
+                      {/* Coverage */}
                       <td style={{ padding: "16px 18px", verticalAlign: "middle" }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>
-                          {branch.radiusKm} km
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "4px 9px",
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            background: "rgba(16, 185, 129, 0.1)",
+                            color: "var(--success)",
+                          }}
+                        >
+                          <span>🌐</span> Tamil Nadu
                         </span>
                       </td>
 

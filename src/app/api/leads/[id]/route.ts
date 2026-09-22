@@ -51,11 +51,12 @@ export async function PATCH(
     if (followUpDate2 !== undefined) {
       updateData.followUpDate2 = followUpDate2 ? new Date(followUpDate2) : null;
     }
-    if (assignedConsultant !== undefined) updateData.assignedConsultant = assignedConsultant;
+    if (assignedConsultant !== undefined) updateData.assignedConsultant = assignedConsultant?.trim() || null;
     if (clearConsultant === true) updateData.assignedConsultant = null;
     if (testDrive !== undefined) updateData.testDrive = testDrive;
     if (branch !== undefined) {
       updateData.branch = typeof branch === 'string' ? branch.trim() : '';
+      updateData.isBranchManual = true;
     }
 
     const updatedLead = await prisma.lead.update({
@@ -107,10 +108,10 @@ export async function PATCH(
               value: followUpDate2 ? new Date(followUpDate2).toISOString().split('T')[0] : '' 
             });
           }
-          if (assignedConsultant !== undefined && mapping.assignedConsultant !== undefined) {
+          if (assignedConsultant !== undefined && mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) {
             updates.push({ col: mapping.assignedConsultant, value: assignedConsultant || '' });
           }
-          if (clearConsultant === true && mapping.assignedConsultant !== undefined) {
+          if (clearConsultant === true && mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) {
             updates.push({ col: mapping.assignedConsultant, value: '' });
           }
           if (testDrive !== undefined && mapping.testDrive !== undefined) {

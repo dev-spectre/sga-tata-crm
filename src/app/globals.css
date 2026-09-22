@@ -366,14 +366,16 @@ body::before {
   box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3);
 }
 
-/* Unassigned tab active */
-.lead-category-tab--unassigned.active {
+/* Unassigned / Invalid tab active */
+.lead-category-tab--unassigned.active,
+.lead-category-tab--invalid.active {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(220, 38, 38, 0.1));
   color: #b91c1c;
   border-color: rgba(239, 68, 68, 0.3);
   box-shadow: 0 2px 6px rgba(239, 68, 68, 0.12);
 }
-.lead-category-tab--unassigned.active .lead-category-badge {
+.lead-category-tab--unassigned.active .lead-category-badge,
+.lead-category-tab--invalid.active .lead-category-badge {
   background: #ef4444;
   color: #ffffff;
   box-shadow: 0 1px 3px rgba(239, 68, 68, 0.3);

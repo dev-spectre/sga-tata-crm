@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { computeIntelligentMapping } from '@/lib/mapping';
 import { getCurrentUser } from '@/lib/auth';
 import { getCachedSettings, invalidateSettingsCache } from '@/lib/settings';
+import { invalidateSyncCache } from '@/lib/sync';
 
 export async function POST() {
   try {
@@ -31,6 +32,7 @@ export async function POST() {
       data: { columnMapping: JSON.stringify(mapping) },
     });
     invalidateSettingsCache();
+    invalidateSyncCache();
 
     return NextResponse.json({ mapping });
   } catch (error) {

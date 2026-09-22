@@ -4,6 +4,7 @@ import { restartNotificationLoop } from '@/lib/notifications';
 import { getGoogleAccountEmail } from '@/lib/google';
 import { getCurrentUser } from '@/lib/auth';
 import { getCachedSettings, setCachedSettings } from '@/lib/settings';
+import { invalidateSyncCache } from '@/lib/sync';
 
 export async function GET() {
   try {
@@ -89,6 +90,10 @@ export async function PATCH(request: NextRequest) {
     });
     
     setCachedSettings(settings);
+
+    if (columnMapping !== undefined) {
+      invalidateSyncCache();
+    }
 
     // Restart notification loop if interval or background notification settings changed
     if (notificationInterval !== undefined || backgroundNotificationsEnabled !== undefined) {
