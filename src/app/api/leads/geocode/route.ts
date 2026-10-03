@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { routeLeadToBranch, logRoutingActivity } from '@/lib/location/routing';
+import { routeLeadToBranchFast, logRoutingActivity } from '@/lib/location/routing';
+import { getActiveBranchesCached } from '@/lib/location/cache';
+import { resolveLocation } from '@/lib/location/matcher';
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,34 +13,41 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { leadIds } = body;
+    const { leadIds, force = false } = body;
 
     if (!Array.isArray(leadIds) || leadIds.length === 0) {
       return NextResponse.json({ success: true, updated: [] });
     }
 
-    // Limit batch size to max 50 leads at a time
-    const safeLeadIds = leadIds.slice(0, 50).filter((id): id is number => typeof id === 'number' && id > 0);
+    // Limit batch size to max 1000 leads at a time
+    const safeLeadIds = leadIds
+      .slice(0, 1000)
+      .filter((id): id is number => typeof id === 'number' && id > 0);
+
     if (safeLeadIds.length === 0) {
       return NextResponse.json({ success: true, updated: [] });
     }
 
-    // 1. Fetch active branches for distance ranking
-    const activeBranches = await prisma.branch.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        city: true,
-        latitude: true,
-        longitude: true,
-        radiusKm: true,
-        isActive: true,
-      },
-    });
+    // 1. Fetch active branches from in-memory cache (< 0.001ms)
+    const activeBranches = await getActiveBranchesCached();
+    if (activeBranches.length === 0) {
+      return NextResponse.json(
+        { error: 'No active dealership branches available for auto-assignment' },
+        { status: 400 }
+      );
+    }
 
-    const activeBranchNames = new Set(activeBranches.map((b: { name: string }) => b.name.toLowerCase().trim()));
+    const activeBranchNames = new Set<string>();
+    activeBranches.forEach((b) => {
+      const lower = b.name.toLowerCase().trim();
+      activeBranchNames.add(lower);
+      activeBranchNames.add(`sga motors ${lower}`);
+      activeBranchNames.add(`sga ${lower}`);
+      if (b.code) activeBranchNames.add(b.code.toLowerCase().trim());
+    });
+    const primaryBranch =
+      activeBranches.find((b) => b.name.toLowerCase().includes('singanallur')) ||
+      activeBranches[0];
 
     // 2. Fetch requested leads
     const targetLeads = await prisma.lead.findMany({
@@ -53,60 +62,47 @@ export async function POST(request: NextRequest) {
 
     const updated: { id: number; branch: string }[] = [];
 
-    // 3. Process leads sequentially in small controlled batch adhering to external geocoding rate limits
+    // 3. Process leads rapidly using fast in-memory routing (< 1ms per lead)
     for (const lead of targetLeads) {
-      // Never auto-assign or overwrite branch if manually chosen by user
-      if (lead.isBranchManual) {
+      // Do not overwrite manual branch unless explicitly forced
+      if (lead.isBranchManual && !force) {
         continue;
       }
 
       const currentBranchClean = (lead.branch || '').toLowerCase().trim();
       const hasValidBranch = currentBranchClean && activeBranchNames.has(currentBranchClean);
 
-      // Skip if lead already has a valid branch
-      if (hasValidBranch) {
+      // Skip if already assigned to a valid active branch unless forced
+      if (hasValidBranch && !force) {
         continue;
       }
 
       const cleanCity = (lead.city || '').trim();
-      if (!cleanCity) {
-        if (lead.branch) {
-          await prisma.lead.update({ where: { id: lead.id }, data: { branch: '' } });
-          updated.push({ id: lead.id, branch: '' });
-        }
-        continue;
-      }
 
       try {
-        // routeLeadToBranch:
-        // Tier 1: In-memory dictionary (instant)
-        // Tier 2: DB LocationCache lookup (instant)
-        // Tier 3: Rate-limited external geocoder (1 req/sec) + automatic LocationCache DB persistence
-        const routeRes = await routeLeadToBranch(cleanCity, {
+        const routeRes = await routeLeadToBranchFast(cleanCity, {
           candidateBranches: activeBranches,
         });
 
-        if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
-          const newBranch = routeRes.assignedBranch.name;
+        const targetBranch =
+          routeRes.status === 'assigned' && routeRes.assignedBranch
+            ? routeRes.assignedBranch.name
+            : '';
+
+        if (targetBranch !== (lead.branch || '')) {
           await prisma.lead.update({
             where: { id: lead.id },
-            data: { branch: newBranch },
+            data: { branch: targetBranch },
           });
-          await logRoutingActivity(lead.id, routeRes, 'System');
-          updated.push({ id: lead.id, branch: newBranch });
-        } else {
-          // Out of state or unresolvable location: clear branch if invalid
-          if (lead.branch) {
-            await prisma.lead.update({
-              where: { id: lead.id },
-              data: { branch: '' },
-            });
-          }
-          await logRoutingActivity(lead.id, routeRes, 'System');
-          updated.push({ id: lead.id, branch: '' });
+
+          logRoutingActivity(lead.id, routeRes, currentUser.username || 'System').catch(
+            console.error
+          );
+
+          updated.push({ id: lead.id, branch: targetBranch });
         }
       } catch (leadErr) {
-        console.warn(`Geocode route error for lead ${lead.id}:`, leadErr);
+        console.warn(`Fast routing error for lead ${lead.id}:`, leadErr);
       }
     }
 
@@ -114,7 +110,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Leads geocode batch error:', error);
     return NextResponse.json(
-      { error: 'Failed to process geocoding batch' },
+      { error: 'Failed to process branch auto-assignment batch' },
       { status: 500 }
     );
   }

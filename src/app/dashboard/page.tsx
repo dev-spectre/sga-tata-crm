@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { parsePhoneNumber, parseBranches, isInvalidPhoneNumber } from "@/lib/utils";
+import { classifyLead, type LeadCategory } from "@/lib/classification";
 import BranchConsultantPicker from "@/components/BranchConsultantPicker";
 import MultiSelectDropdown from "@/components/MultiSelectDropdown";
 import { ExternalUploadModal } from "@/components/ExternalUploadModal";
@@ -53,7 +54,7 @@ interface ConsultantItem {
   branch: string;
 }
 
-export type LeadCategory = 'all' | 'priority' | 'valid' | 'invalid' | 'unassigned';
+export type { LeadCategory };
 
 interface Stats {
   total: number;
@@ -65,10 +66,12 @@ interface Stats {
   closedSuccessful?: number;
   closedUnsuccessful?: number;
   categories?: {
-    priority: number;
     valid: number;
-    unassigned: number;
+    invalid: number;
+    outside: number;
     all: number;
+    priority?: number;
+    unassigned?: number;
   };
 }
 
@@ -160,9 +163,9 @@ export default function DashboardPage() {
     pending: 0,
     live: 0,
     lost: 0,
-    categories: { priority: 0, valid: 0, unassigned: 0, all: 0 },
+    categories: { valid: 0, invalid: 0, outside: 0, all: 0 },
   });
-  const [category, setCategory] = useState<LeadCategory>("all");
+  const [category, setCategory] = useState<LeadCategory>("valid");
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 });
   const [mounted, setMounted] = useState(false);
   const [searchInput, setSearchInput] = useState("");
@@ -184,6 +187,7 @@ export default function DashboardPage() {
   const [primaryOrder, setPrimaryOrder] = useState<"desc" | "asc">("desc");
   const [secondaryField, setSecondaryField] = useState("");
   const [secondaryOrder, setSecondaryOrder] = useState<"asc" | "desc">("asc");
+  const [autoAssigning, setAutoAssigning] = useState(false);
 
   const [username, setUsername] = useState<string>(() => cachedMeUser?.username || "");
   const [userRole, setUserRole] = useState<string>(() => cachedMeUser?.role || "USER");
@@ -209,8 +213,9 @@ export default function DashboardPage() {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (typeof parsed.category === "string" && ["priority", "valid", "invalid", "unassigned", "all"].includes(parsed.category)) {
-          setCategory(parsed.category as LeadCategory);
+        if (typeof parsed.category === "string" && ["valid", "invalid", "outside", "all", "priority", "unassigned"].includes(parsed.category)) {
+          const resolvedCat = parsed.category === "unassigned" ? "outside" : parsed.category;
+          setCategory(resolvedCat as LeadCategory);
         }
         if (typeof parsed.search === "string") {
           setSearchInput(parsed.search);
@@ -363,8 +368,9 @@ export default function DashboardPage() {
       const uploaderParam = urlParams.get("uploader");
       const categoryParam = urlParams.get("category");
 
-      if (categoryParam !== null && ["priority", "valid", "invalid", "unassigned", "all"].includes(categoryParam.toLowerCase())) {
-        setCategory(categoryParam.toLowerCase() as LeadCategory);
+      if (categoryParam !== null && ["valid", "invalid", "outside", "all", "priority", "unassigned"].includes(categoryParam.toLowerCase())) {
+        const resolvedCat = categoryParam.toLowerCase() === "unassigned" ? "outside" : categoryParam.toLowerCase();
+        setCategory(resolvedCat as LeadCategory);
       }
 
       if (consultantParam !== null) {
@@ -546,7 +552,7 @@ export default function DashboardPage() {
     try {
       const params = new URLSearchParams();
       params.set("primaryOrder", primaryOrder);
-      if (category && category !== "all" && category !== "invalid" && category !== "unassigned") params.set("category", category);
+      if (category && category !== "all") params.set("category", category);
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
       if (branchFilter) params.set("branch", branchFilter);
@@ -851,7 +857,7 @@ export default function DashboardPage() {
     setPagination(p => ({ ...p, page: 1 }));
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
-      if (newCat === "all") {
+      if (newCat === "valid") {
         url.searchParams.delete("category");
       } else {
         url.searchParams.set("category", newCat);
@@ -864,43 +870,96 @@ export default function DashboardPage() {
     const branchMap = new Map<string, string>();
     const add = (b: string) => {
       if (!b) return;
-      parseBranches(b).forEach(clean => {
-        if (!clean) return;
-        const key = clean.toLowerCase();
-        if (!branchMap.has(key)) {
-          branchMap.set(key, clean === "Mtp" ? "MTP" : clean);
-        } else {
-          const existing = branchMap.get(key)!;
-          if (clean === "MTP" || (clean === clean.toUpperCase() && existing !== existing.toUpperCase())) {
-            branchMap.set(key, clean);
-          }
-        }
-      });
+      const trimmed = b.trim();
+      if (!trimmed || trimmed.toLowerCase() === 'unassigned' || trimmed.toLowerCase() === 'other') return;
+      const key = trimmed.toLowerCase();
+      if (!branchMap.has(key)) {
+        branchMap.set(key, trimmed);
+      }
     };
 
     apiBranches.forEach(add);
+    leads.forEach(l => {
+      if (l.branch) add(l.branch);
+    });
+
     return Array.from(branchMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [apiBranches]);
+  }, [apiBranches, leads]);
 
   // Track leads currently in-flight or already processed for geocoding to prevent repeat requests
   const inFlightGeocodeIdsRef = useRef<Set<number>>(new Set());
 
-  // Background geocoding: slowly geocodes visible leads loaded in frontend in rate-limited batches
+  const unassignedVisibleLeads = useMemo(() => {
+    if (!leads || leads.length === 0) return [];
+    return leads.filter(l => {
+      const clean = (l.branch || '').trim().toLowerCase();
+      return !clean || clean === 'unassigned' || clean === 'other';
+    });
+  }, [leads]);
+
+  const unassignedVisibleCount = unassignedVisibleLeads.length;
+
+  const handleAutoAssignVisible = async () => {
+    if (autoAssigning) return;
+    const targetLeads = leads.filter(l => {
+      if (l.isBranchManual) return false;
+      const clean = (l.branch || '').trim().toLowerCase();
+      if (!clean || clean === 'unassigned' || clean === 'other') return true;
+      const normClean = clean.replace(/^sga\s+(motors\s+)?/i, '').trim();
+      const hasValidBranch = branches.some(b => {
+        const bLower = b.toLowerCase().trim();
+        return bLower === clean || bLower === normClean;
+      });
+      return !hasValidBranch;
+    });
+
+    if (targetLeads.length === 0) {
+      showToast("All visible leads have valid branches assigned.", "success");
+      return;
+    }
+
+    const targetIds = targetLeads.map(l => l.id);
+    setAutoAssigning(true);
+
+    try {
+      const res = await fetch("/api/leads/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: targetIds, force: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.updated) && data.updated.length > 0) {
+        for (const item of data.updated) {
+          patchLeadInCache({ id: item.id, branch: item.branch });
+        }
+        showToast(`Auto-assigned ${data.updated.length} visible lead(s) to nearest branches!`, "success");
+        await fetchLeads(true);
+      } else if (res.ok) {
+        showToast("All visible leads have valid branches assigned.", "success");
+        await fetchLeads(true);
+      } else {
+        showToast(data.error || "Failed to auto-assign branches", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Network error while auto-assigning branches", "error");
+    } finally {
+      setAutoAssigning(false);
+    }
+  };
+
+  // Background geocoding: auto assigns visible leads loaded in frontend to nearest branches
   useEffect(() => {
     if (!leads || leads.length === 0 || !branches || branches.length === 0) return;
 
     const unassignedLeads = leads.filter(l => {
       if (!l.id || inFlightGeocodeIdsRef.current.has(l.id)) return false;
-      // Skip manually updated leads — user explicitly chose this branch (or unassigned)
-      if (l.isBranchManual) {
-        inFlightGeocodeIdsRef.current.add(l.id);
-        return false;
-      }
-      if (!l.city || !l.city.trim()) {
-        inFlightGeocodeIdsRef.current.add(l.id);
-        return false;
-      }
-      const hasValidBranch = Boolean(l.branch && branches.includes(l.branch));
+      if (l.isBranchManual) return false;
+      const clean = (l.branch || '').trim().toLowerCase();
+      const normClean = clean.replace(/^sga\s+(motors\s+)?/i, '').trim();
+      const hasValidBranch = clean && clean !== 'unassigned' && clean !== 'other' && branches.some(b => {
+        const bLower = b.toLowerCase().trim();
+        return bLower === clean || bLower === normClean;
+      });
       if (hasValidBranch) {
         inFlightGeocodeIdsRef.current.add(l.id);
         return false;
@@ -929,7 +988,7 @@ export default function DashboardPage() {
         }
       })
       .catch(err => {
-        console.warn("Background geocoding error:", err);
+        console.warn("Background auto-assignment error:", err);
       });
 
     return () => {
@@ -1066,60 +1125,66 @@ export default function DashboardPage() {
   }, [consultantsList, branchFilter, userRole, userAssignedBranch]);
 
   const categoryCounts = useMemo(() => {
-    const todayStr = getTodayISTString();
-    let pCount = 0;
+    // If stats categories returned from server, prioritize them as they represent entire DB
+    if (stats?.categories && stats.categories.all > 0) {
+      return {
+        valid: stats.categories.valid ?? 0,
+        invalid: stats.categories.invalid ?? 0,
+        outside: stats.categories.outside ?? 0,
+        all: stats.categories.all ?? 0,
+      };
+    }
+
     let vCount = 0;
     let iCount = 0;
+    let oCount = 0;
+
+    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
 
     for (const l of leads) {
-      const isBadPhone = isInvalidPhoneNumber(l.phone);
-      const hasValidBranch = Boolean(l.branch && branches.includes(l.branch));
-      if (isBadPhone || !hasValidBranch) {
+      const cat = classifyLead(l, branchSet);
+      if (cat === "invalid") {
         iCount++;
+      } else if (cat === "outside") {
+        oCount++;
       } else {
         vCount++;
-        const f1 = toISTDateString(l.followUpDate1);
-        const f2 = toISTDateString(l.followUpDate2);
-        if ((f1 && f1 <= todayStr) || (f2 && f2 <= todayStr)) {
-          pCount++;
-        }
       }
     }
 
     return {
-      priority: pCount,
       valid: vCount,
       invalid: iCount,
+      outside: oCount,
       all: leads.length,
     };
-  }, [leads, branches]);
+  }, [stats?.categories, leads, branches]);
 
   const displayedLeads = useMemo(() => {
     let result = leads;
     if (branchFilter) {
-      result = result.filter(l => l.branch && parseBranches(l.branch).includes(branchFilter));
+      const bFilterClean = branchFilter.toLowerCase().trim();
+      result = result.filter(l => {
+        if (!l.branch) return false;
+        const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
+        return leadBranches.includes(bFilterClean) || l.branch.toLowerCase().trim() === bFilterClean;
+      });
     }
     if (!result || result.length === 0) return result;
 
-    // Frontend Category Filtering: compute categories on loaded leads only
+    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
+
+    // Frontend Category Filtering: compute categories on loaded leads
     if (category === "valid") {
-      result = result.filter(l => {
-        const isBadPhone = isInvalidPhoneNumber(l.phone);
-        const hasValidBranch = Boolean(l.branch && branches.includes(l.branch));
-        return !isBadPhone && hasValidBranch;
-      });
-    } else if (category === "invalid" || category === "unassigned") {
-      result = result.filter(l => {
-        const isBadPhone = isInvalidPhoneNumber(l.phone);
-        const hasValidBranch = Boolean(l.branch && branches.includes(l.branch));
-        return isBadPhone || !hasValidBranch;
-      });
+      result = result.filter(l => classifyLead(l, branchSet) === "valid");
+    } else if (category === "invalid") {
+      result = result.filter(l => classifyLead(l, branchSet) === "invalid");
+    } else if (category === "outside") {
+      result = result.filter(l => classifyLead(l, branchSet) === "outside");
     } else if (category === "priority") {
       const todayStr = getTodayISTString();
       result = result.filter(l => {
-        const isBadPhone = isInvalidPhoneNumber(l.phone);
-        const hasValidBranch = Boolean(l.branch && branches.includes(l.branch));
-        if (isBadPhone || !hasValidBranch) return false;
+        if (classifyLead(l, branchSet) !== "valid") return false;
         const f1 = toISTDateString(l.followUpDate1);
         const f2 = toISTDateString(l.followUpDate2);
         return Boolean((f1 && f1 <= todayStr) || (f2 && f2 <= todayStr));
@@ -1177,7 +1242,10 @@ export default function DashboardPage() {
 
     const exportLeads = allLeads.filter((l: Lead) => {
       if (!branchFilter) return true;
-      return l.branch && parseBranches(l.branch).includes(branchFilter);
+      if (!l.branch) return false;
+      const bFilterClean = branchFilter.toLowerCase().trim();
+      const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
+      return leadBranches.includes(bFilterClean) || l.branch.toLowerCase().trim() === bFilterClean;
     });
 
     if (exportLeads.length === 0) {
@@ -1186,18 +1254,24 @@ export default function DashboardPage() {
       return;
     }
 
-    const exportData = exportLeads.map((l: Lead) => ({
-      Name: l.name,
-      Phone: l.phone,
-      City: l.city || "-",
-      "Ad Name": l.adname || "-",
-      Branch: l.branch ? parseBranches(l.branch).join(", ") : "-",
-      "Follow Up 1": toISTDateString(l.followUpDate1) || "-",
-      "Follow Up 2": toISTDateString(l.followUpDate2) || "-",
-      "Created At": formatDate(l.createdAt),
-      Status: formatStatusLabel(l.status),
-      Remark: l.remark || "-"
-    }));
+    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
+    const exportData = exportLeads.map((l: Lead) => {
+      const classification = classifyLead(l, branchSet);
+      const catLabel = classification === 'valid' ? 'Valid (Tamil Nadu)' : classification === 'invalid' ? 'Invalid' : 'Outside TN';
+      return {
+        Name: l.name,
+        Phone: l.phone,
+        Category: catLabel,
+        City: l.city || "-",
+        "Ad Name": l.adname || "-",
+        Branch: l.branch ? parseBranches(l.branch).join(", ") : "-",
+        "Follow Up 1": toISTDateString(l.followUpDate1) || "-",
+        "Follow Up 2": toISTDateString(l.followUpDate2) || "-",
+        "Created At": formatDate(l.createdAt),
+        Status: formatStatusLabel(l.status),
+        Remark: l.remark || "-"
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -1222,7 +1296,10 @@ export default function DashboardPage() {
 
     const exportLeads = allLeads.filter((l: Lead) => {
       if (!branchFilter) return true;
-      return l.branch && parseBranches(l.branch).includes(branchFilter);
+      if (!l.branch) return false;
+      const bFilterClean = branchFilter.toLowerCase().trim();
+      const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
+      return leadBranches.includes(bFilterClean) || l.branch.toLowerCase().trim() === bFilterClean;
     });
 
     if (exportLeads.length === 0) {
@@ -1668,6 +1745,48 @@ export default function DashboardPage() {
             {exportLoading ? <><span className="spinner" style={{width: 14, height: 14}}/> Exporting...</> : "Export PDF"}
           </button> */}
 
+          <button
+            className="btn btn-secondary"
+            onClick={handleAutoAssignVisible}
+            disabled={autoAssigning}
+            title={
+              unassignedVisibleCount > 0
+                ? `Auto assign nearest branch for ${unassignedVisibleCount} visible lead(s)`
+                : "Auto assign nearest branch for visible leads"
+            }
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            {autoAssigning ? (
+              <>
+                <span className="spinner" style={{ width: 14, height: 14 }} />
+                Assigning...
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                  <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z" />
+                  <circle cx="12" cy="10" r="3" />
+                </svg>
+                <span>Auto Assign Branch</span>
+                {unassignedVisibleCount > 0 && (
+                  <span
+                    style={{
+                      padding: "2px 7px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      borderRadius: 10,
+                      background: "#3b82f6",
+                      color: "#fff",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {unassignedVisibleCount}
+                  </span>
+                )}
+              </>
+            )}
+          </button>
+
           <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
             {syncing ? <><span className="spinner" /> Syncing...</> : (
               <>
@@ -2085,24 +2204,10 @@ export default function DashboardPage() {
           <button
             type="button"
             role="tab"
-            aria-selected={category === "priority"}
-            className={`lead-category-tab lead-category-tab--priority ${category === "priority" ? "active" : ""}`}
-            onClick={() => handleCategoryChange("priority")}
-            title="Valid Tamil Nadu leads with follow-up scheduled today or overdue"
-          >
-            <span className="lead-category-tab-label">Priority (Today)</span>
-            <span className="lead-category-badge">
-              {categoryCounts.priority}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
             aria-selected={category === "valid"}
             className={`lead-category-tab lead-category-tab--valid ${category === "valid" ? "active" : ""}`}
             onClick={() => handleCategoryChange("valid")}
-            title="All verified leads located inside Tamil Nadu with valid phone numbers"
+            title="Tamil Nadu leads with valid phone numbers (Default)"
           >
             <span className="lead-category-tab-label">Valid (Tamil Nadu)</span>
             <span className="lead-category-badge">
@@ -2113,10 +2218,10 @@ export default function DashboardPage() {
           <button
             type="button"
             role="tab"
-            aria-selected={category === "invalid" || category === "unassigned"}
-            className={`lead-category-tab lead-category-tab--unassigned lead-category-tab--invalid ${(category === "invalid" || category === "unassigned") ? "active" : ""}`}
+            aria-selected={category === "invalid"}
+            className={`lead-category-tab lead-category-tab--invalid ${category === "invalid" ? "active" : ""}`}
             onClick={() => handleCategoryChange("invalid")}
-            title="Leads with invalid phone numbers, outside Tamil Nadu, or unassigned"
+            title="Leads with invalid phone numbers"
           >
             <span className="lead-category-tab-label">Invalid</span>
             <span className="lead-category-badge">
@@ -2127,10 +2232,24 @@ export default function DashboardPage() {
           <button
             type="button"
             role="tab"
+            aria-selected={category === "outside"}
+            className={`lead-category-tab lead-category-tab--outside ${category === "outside" ? "active" : ""}`}
+            onClick={() => handleCategoryChange("outside")}
+            title="Leads located outside Tamil Nadu"
+          >
+            <span className="lead-category-tab-label">Outside</span>
+            <span className="lead-category-badge">
+              {categoryCounts.outside}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
             aria-selected={category === "all"}
             className={`lead-category-tab lead-category-tab--all ${category === "all" ? "active" : ""}`}
             onClick={() => handleCategoryChange("all")}
-            title="All leads across all categories"
+            title="All registered leads across all categories"
           >
             <span className="lead-category-tab-label">All Leads</span>
             <span className="lead-category-badge">
@@ -2141,22 +2260,22 @@ export default function DashboardPage() {
 
         {/* Category Scope Helper Description */}
         <div className="lead-category-indicator">
-          {category === "priority" && (
-            <span className="lead-category-hint priority">
-              <span className="lead-category-hint-dot" />
-              Showing <strong>Tamil Nadu</strong> leads requiring immediate follow-up (Today or Overdue)
-            </span>
-          )}
           {category === "valid" && (
             <span className="lead-category-hint valid">
               <span className="lead-category-hint-dot" />
-              Showing verified leads located within <strong>Tamil Nadu</strong> with valid phone numbers
+              Showing <strong>Tamil Nadu</strong> leads with valid phone numbers (Default)
             </span>
           )}
-          {(category === "invalid" || category === "unassigned") && (
-            <span className="lead-category-hint unassigned">
+          {category === "invalid" && (
+            <span className="lead-category-hint invalid">
               <span className="lead-category-hint-dot" />
-              Showing leads with <strong>invalid phone numbers</strong>, <strong>outside Tamil Nadu</strong>, or unassigned to branches
+              Showing leads with <strong>invalid phone numbers</strong>
+            </span>
+          )}
+          {category === "outside" && (
+            <span className="lead-category-hint outside">
+              <span className="lead-category-hint-dot" />
+              Showing leads located <strong>outside Tamil Nadu</strong>
             </span>
           )}
           {category === "all" && (
@@ -2292,17 +2411,26 @@ export default function DashboardPage() {
                           </td>
                           <td>
                             {(() => {
-                              const isBranchValid = Boolean(lead.branch && branches.includes(lead.branch));
+                              const cleanLeadBranch = (lead.branch || '').trim();
+                              const matchedBranch = branches.find(
+                                (b) => b.toLowerCase().trim() === cleanLeadBranch.toLowerCase()
+                              ) || (cleanLeadBranch && cleanLeadBranch.toLowerCase() !== 'unassigned' && cleanLeadBranch.toLowerCase() !== 'other' ? cleanLeadBranch : '');
+                              const isBranchValid = Boolean(matchedBranch);
+
+                              const selectOptions = matchedBranch && !branches.some((b) => b.toLowerCase() === matchedBranch.toLowerCase())
+                                ? [matchedBranch, ...branches]
+                                : branches;
+
                               return (
                                 <select
                                   className={`branch-select ${!isBranchValid ? "branch-unassigned" : ""}`}
-                                  value={isBranchValid ? lead.branch : ""}
+                                  value={isBranchValid ? matchedBranch : ""}
                                   onChange={(e) => handleBranchChange(lead, e.target.value)}
                                   disabled={isLeadLocked || branchUpdatingId === lead.id}
-                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Branch: ${isBranchValid ? lead.branch : "Unassigned"}`}
+                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Branch: ${isBranchValid ? matchedBranch : "Unassigned"}`}
                                 >
                                   <option value="">Unassigned</option>
-                                  {branches.map((b) => (
+                                  {selectOptions.map((b) => (
                                     <option key={b} value={b}>
                                       {b}
                                     </option>
@@ -2601,18 +2729,27 @@ export default function DashboardPage() {
                         <div className="lead-mobile-meta-item">
                           <span className="lead-mobile-meta-label">Branch</span>
                           {(() => {
-                            const isBranchValid = Boolean(lead.branch && branches.includes(lead.branch));
+                            const cleanLeadBranch = (lead.branch || '').trim();
+                            const matchedBranch = branches.find(
+                              (b) => b.toLowerCase().trim() === cleanLeadBranch.toLowerCase()
+                            ) || (cleanLeadBranch && cleanLeadBranch.toLowerCase() !== 'unassigned' && cleanLeadBranch.toLowerCase() !== 'other' ? cleanLeadBranch : '');
+                            const isBranchValid = Boolean(matchedBranch);
+
+                            const selectOptions = matchedBranch && !branches.some((b) => b.toLowerCase() === matchedBranch.toLowerCase())
+                              ? [matchedBranch, ...branches]
+                              : branches;
+
                             return (
                               <select
                                 className={`branch-select ${!isBranchValid ? "branch-unassigned" : ""}`}
                                 style={{ width: "100%", maxWidth: "100%" }}
-                                value={isBranchValid ? lead.branch : ""}
+                                value={isBranchValid ? matchedBranch : ""}
                                 onChange={(e) => handleBranchChange(lead, e.target.value)}
                                 disabled={isLeadLocked || branchUpdatingId === lead.id}
-                                title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Branch: ${isBranchValid ? lead.branch : "Unassigned"}`}
+                                title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Branch: ${isBranchValid ? matchedBranch : "Unassigned"}`}
                               >
                                 <option value="">Unassigned</option>
-                                {branches.map((b) => (
+                                {selectOptions.map((b) => (
                                   <option key={b} value={b}>
                                     {b}
                                   </option>

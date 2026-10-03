@@ -4,6 +4,8 @@ import { parsePhoneNumber, sanitizeField, parseSheetStatus, isInvalidPhoneNumber
 import { getCachedSettings } from '@/lib/settings';
 import { resolveLocation } from '@/lib/location/matcher';
 import { calculateHaversineDistance } from '@/lib/location/routing';
+import { normalizeKey } from '@/lib/location/tn-locations';
+import { getCachedLocationFromMemory, ensureLocationCacheLoaded } from '@/lib/location/cache';
 
 interface ColumnMapping {
   name: number;
@@ -120,10 +122,23 @@ export async function performSheetSync() {
     console.error('Failed to pre-fetch active branches in sync:', err);
   }
 
+  try {
+    await ensureLocationCacheLoaded();
+  } catch (err) {
+    console.warn('Failed to ensure location cache loaded in sync:', err);
+  }
+
   const activeBranchLookup = new Map<string, string>();
   activeBranches.forEach((b) => {
-    if (b.name) activeBranchLookup.set(b.name.toLowerCase().trim(), b.name);
-    if (b.code) activeBranchLookup.set(b.code.toLowerCase().trim(), b.name);
+    if (b.name) {
+      const lower = b.name.toLowerCase().trim();
+      activeBranchLookup.set(lower, b.name);
+      activeBranchLookup.set(`sga motors ${lower}`, b.name);
+      activeBranchLookup.set(`sga ${lower}`, b.name);
+    }
+    if (b.code) {
+      activeBranchLookup.set(b.code.toLowerCase().trim(), b.name);
+    }
   });
 
   const validGeoBranches = activeBranches.filter(
@@ -131,13 +146,44 @@ export async function performSheetSync() {
   );
 
   const getNearestBranchForCity = (cityName: string): string => {
-    if (!cityName || validGeoBranches.length === 0) return '';
-    const match = resolveLocation(cityName);
-    if (!match || !match.matched) return ''; // Out of state or unknown -> unassigned
+    if (validGeoBranches.length === 0 || !cityName || !cityName.trim()) {
+      return '';
+    }
+
+    // 1. Check in-memory location cache FIRST (prioritize user manual overrides and geocoded cache)
+    const normKey = normalizeKey(cityName);
+    const cached = getCachedLocationFromMemory(normKey);
+    let lat: number | null = null;
+    let lon: number | null = null;
+
+    if (cached) {
+      if (!cached.isTamilNadu) {
+        // Out of state: keep unassigned
+        return '';
+      }
+      if (typeof cached.latitude === 'number' && typeof cached.longitude === 'number' && (cached.latitude !== 0 || cached.longitude !== 0)) {
+        lat = cached.latitude;
+        lon = cached.longitude;
+      }
+    }
+
+    // 2. If not in cache, check exact or aliases in local TN dictionary
+    if (lat === null || lon === null) {
+      const match = resolveLocation(cityName);
+      if (match && match.matched && match.latitude !== 0 && match.longitude !== 0) {
+        lat = match.latitude;
+        lon = match.longitude;
+      }
+    }
+
+    if (lat === null || lon === null || (lat === 0 && lon === 0)) {
+      return '';
+    }
+
     let minDistance = Infinity;
     let closest = '';
     for (const b of validGeoBranches) {
-      const dist = calculateHaversineDistance(match.latitude, match.longitude, b.latitude!, b.longitude!);
+      const dist = calculateHaversineDistance(lat, lon, b.latitude!, b.longitude!);
       if (dist < minDistance) {
         minDistance = dist;
         closest = b.name;
@@ -446,19 +492,23 @@ export async function performSheetSync() {
         updateData.fingerprint = fingerprint;
       }
 
-      // Branch: map Tamil Nadu leads to nearest active branch; out-of-state leads stay unassigned
-      let resolvedExistingBranch = existing.branch || '';
-      if (existing.isBranchManual) {
-        resolvedExistingBranch = existing.branch || '';
-      } else if (mapping.branch !== undefined && mapping.branch >= 0) {
-        resolvedExistingBranch = branch;
-      } else if (existing.branch && activeBranchLookup.has(existing.branch.toLowerCase().trim())) {
-        resolvedExistingBranch = activeBranchLookup.get(existing.branch.toLowerCase().trim())!;
-      } else {
-        resolvedExistingBranch = getNearestBranchForCity(city);
-      }
-      if (existing.branch !== resolvedExistingBranch) {
-        updateData.branch = resolvedExistingBranch;
+      // Branch: map leads to nearest active branch (including out-of-state leads)
+      // STRICT INVARIANT: If staff/admin manually set the branch (isBranchManual: true),
+      // sync MUST NEVER overwrite existing.branch under ANY circumstance!
+      if (!existing.isBranchManual) {
+        let resolvedExistingBranch = existing.branch || '';
+        if (mapping.branch !== undefined && mapping.branch >= 0 && branch) {
+          resolvedExistingBranch = branch;
+        } else if (existing.branch && activeBranchLookup.has(existing.branch.toLowerCase().trim())) {
+          resolvedExistingBranch = activeBranchLookup.get(existing.branch.toLowerCase().trim())!;
+        } else if (existing.branch && activeBranchLookup.has(existing.branch.toLowerCase().replace(/^sga\s+(motors\s+)?/i, '').trim())) {
+          resolvedExistingBranch = activeBranchLookup.get(existing.branch.toLowerCase().replace(/^sga\s+(motors\s+)?/i, '').trim())!;
+        } else {
+          resolvedExistingBranch = getNearestBranchForCity(city);
+        }
+        if (existing.branch !== resolvedExistingBranch && resolvedExistingBranch) {
+          updateData.branch = resolvedExistingBranch;
+        }
       }
 
       // CreatedAt: update if sheet has date and different from existing
@@ -601,6 +651,7 @@ export async function performSheetSync() {
         source: 'System',
         uploadedById: null,
         fingerprint,
+        isInvalidPhone: isInvalidPhoneNumber(phone),
       });
       synced++;
     }

@@ -55,8 +55,9 @@ export async function POST(request: NextRequest) {
     );
     let assignedBranch = matchedBranch ? matchedBranch.name : '';
     let routingResult = null;
-    const locationInput = parsedCity || (body.zipcode || body.location || '').toString().trim();
-    if (!assignedBranch && locationInput) {
+    const locationInput = parsedCity || (body.City || body.town || body.Town || body.district || body.District || body.location || body.Location || body.address || body.zipcode || '').toString().trim();
+    
+    if (!assignedBranch) {
       try {
         routingResult = await routeLeadToBranch(locationInput, { candidateBranches: activeBranches });
         if (routingResult.status === 'assigned' && routingResult.assignedBranch) {
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
         console.warn('Webhook auto-routing error:', routeErr);
       }
     }
+
     
     let lead;
     try {

@@ -332,8 +332,36 @@ export async function GET(request: NextRequest) {
         isActive: true,
       },
     });
-    const activeBranchNames = activeBranches.map((b: { name: string }) => b.name);
-    const activeBranchSet = new Set(activeBranches.map((b: { name: string }) => b.name.toLowerCase().trim()));
+    const activeBranchNames: string[] = [];
+    const activeBranchSet = new Set<string>();
+    const activeBranchLookup = new Map<string, string>();
+
+    activeBranches.forEach((b: { name: string; code?: string | null }) => {
+      const cleanName = b.name.trim();
+      const lowerName = cleanName.toLowerCase();
+      activeBranchNames.push(cleanName);
+      activeBranchSet.add(lowerName);
+      activeBranchLookup.set(lowerName, cleanName);
+
+      if (b.code) {
+        const cleanCode = b.code.trim();
+        const lowerCode = cleanCode.toLowerCase();
+        activeBranchNames.push(cleanCode);
+        activeBranchSet.add(lowerCode);
+        activeBranchLookup.set(lowerCode, cleanName);
+      }
+
+      if (!lowerName.startsWith('sga')) {
+        const sgaMotorsVariant = `SGA Motors ${cleanName}`;
+        const sgaVariant = `SGA ${cleanName}`;
+        activeBranchNames.push(sgaMotorsVariant);
+        activeBranchNames.push(sgaVariant);
+        activeBranchSet.add(sgaMotorsVariant.toLowerCase());
+        activeBranchSet.add(sgaVariant.toLowerCase());
+        activeBranchLookup.set(sgaMotorsVariant.toLowerCase(), cleanName);
+        activeBranchLookup.set(sgaVariant.toLowerCase(), cleanName);
+      }
+    });
 
     const validBranchCondition: any = {
       branch: { in: activeBranchNames },
@@ -343,6 +371,14 @@ export async function GET(request: NextRequest) {
       branch: { notIn: activeBranchNames },
     };
 
+    const validPhoneCondition: any = {
+      isInvalidPhone: false,
+    };
+
+    const invalidPhoneCondition: any = {
+      isInvalidPhone: true,
+    };
+
     const priorityFollowUpCondition: any = {
       OR: [
         { followUpDate1: { lte: todayEndOfDay, not: null } },
@@ -350,21 +386,29 @@ export async function GET(request: NextRequest) {
       ],
     };
 
-    if (category === 'priority') {
+    if (category === 'valid') {
       where.AND = [
         ...(where.AND || []),
+        validPhoneCondition,
+        validBranchCondition,
+      ];
+    } else if (category === 'invalid') {
+      where.AND = [
+        ...(where.AND || []),
+        invalidPhoneCondition,
+      ];
+    } else if (category === 'outside' || category === 'unassigned') {
+      where.AND = [
+        ...(where.AND || []),
+        validPhoneCondition,
+        unassignedBranchCondition,
+      ];
+    } else if (category === 'priority') {
+      where.AND = [
+        ...(where.AND || []),
+        validPhoneCondition,
         validBranchCondition,
         priorityFollowUpCondition,
-      ];
-    } else if (category === 'valid') {
-      where.AND = [
-        ...(where.AND || []),
-        validBranchCondition,
-      ];
-    } else if (category === 'unassigned') {
-      where.AND = [
-        ...(where.AND || []),
-        unassignedBranchCondition,
       ];
     }
     
@@ -418,10 +462,12 @@ export async function GET(request: NextRequest) {
     let lostLeads = 0;
     let maxUpdatedAt: string | null = null;
     let categoryStats = {
-      priority: 0,
       valid: 0,
-      unassigned: 0,
+      invalid: 0,
+      outside: 0,
       all: 0,
+      priority: 0,
+      unassigned: 0,
     };
 
     const includeTotal = searchParams.get('includeTotal') === 'true' || Boolean(followUpDate || followUpStartDate) || !skipStats;
@@ -455,9 +501,11 @@ export async function GET(request: NextRequest) {
         dbTotal,
         statusCounts,
         maxAggregate,
-        priorityCount,
         validCount,
-        unassignedCount,
+        invalidCount,
+        outsideCount,
+        allCount,
+        priorityCount,
       ] = await Promise.all([
         prisma.lead.findMany({
           where,
@@ -480,31 +528,51 @@ export async function GET(request: NextRequest) {
             updatedAt: true,
           },
         }),
+        // 1. Valid: Tamil Nadu leads with valid phone number
         prisma.lead.count({
           where: {
             ...statsWhere,
             AND: [
               ...(statsWhere.AND || []),
+              validPhoneCondition,
+              validBranchCondition,
+            ],
+          },
+        }),
+        // 2. Invalid: Leads with invalid phone number
+        prisma.lead.count({
+          where: {
+            ...statsWhere,
+            AND: [
+              ...(statsWhere.AND || []),
+              invalidPhoneCondition,
+            ],
+          },
+        }),
+        // 3. Outside: Leads outside Tamil Nadu with valid phone number
+        prisma.lead.count({
+          where: {
+            ...statsWhere,
+            AND: [
+              ...(statsWhere.AND || []),
+              validPhoneCondition,
+              unassignedBranchCondition,
+            ],
+          },
+        }),
+        // 4. All leads matching active statsWhere filters
+        prisma.lead.count({
+          where: statsWhere,
+        }),
+        // 5. Priority follow-up leads
+        prisma.lead.count({
+          where: {
+            ...statsWhere,
+            AND: [
+              ...(statsWhere.AND || []),
+              validPhoneCondition,
               validBranchCondition,
               priorityFollowUpCondition,
-            ],
-          },
-        }),
-        prisma.lead.count({
-          where: {
-            ...statsWhere,
-            AND: [
-              ...(statsWhere.AND || []),
-              validBranchCondition,
-            ],
-          },
-        }),
-        prisma.lead.count({
-          where: {
-            ...statsWhere,
-            AND: [
-              ...(statsWhere.AND || []),
-              unassignedBranchCondition,
             ],
           },
         }),
@@ -513,10 +581,12 @@ export async function GET(request: NextRequest) {
       leads = dbLeads;
       total = dbTotal;
       categoryStats = {
-        priority: priorityCount,
         valid: validCount,
-        unassigned: unassignedCount,
-        all: validCount + unassignedCount,
+        invalid: invalidCount,
+        outside: outsideCount,
+        all: allCount,
+        priority: priorityCount,
+        unassigned: outsideCount,
       };
 
       if (maxAggregate?._max?.updatedAt) {
@@ -538,12 +608,20 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // In-memory sanitization: ensure any leftover invalid branch string (ad name) is sanitized to ''
-    // Geocoding of visible leads is handled asynchronously/slowly via /api/leads/geocode
+    // In-memory normalization: ensure branch names match canonical active branch names
     for (const lead of leads) {
       const currentBranchTrimmed = (lead.branch || '').toLowerCase().trim();
-      if (currentBranchTrimmed && !activeBranchSet.has(currentBranchTrimmed)) {
-        lead.branch = '';
+      const normBranch = currentBranchTrimmed.replace(/^sga\s+(motors\s+)?/i, '').trim();
+      if (currentBranchTrimmed) {
+        if (activeBranchSet.has(currentBranchTrimmed)) {
+          const canonical = activeBranchLookup.get(currentBranchTrimmed) || activeBranchLookup.get(normBranch);
+          if (canonical) lead.branch = canonical;
+        } else if (activeBranchSet.has(normBranch)) {
+          const canonical = activeBranchLookup.get(normBranch);
+          if (canonical) lead.branch = canonical;
+        } else {
+          lead.branch = '';
+        }
       }
     }
 

@@ -1,6 +1,12 @@
 import { prisma } from '../prisma';
 import { resolveLocation } from './matcher';
 import { normalizeKey } from './tn-locations';
+import {
+  ensureLocationCacheLoaded,
+  getCachedLocationFromMemory,
+  setCachedLocation,
+  getAllCachedLocationsFromMemory,
+} from './cache';
 
 export interface TieredLocationResult {
   matched: boolean;
@@ -11,7 +17,7 @@ export interface TieredLocationResult {
   latitude: number;
   longitude: number;
   pincode?: string;
-  source: 'dictionary' | 'cache' | 'google' | 'nominatim' | 'none';
+  source: 'dictionary' | 'cache' | 'google' | 'nominatim' | 'none' | 'manual_override';
   confidence: number;
   isTamilNadu: boolean;
 }
@@ -164,10 +170,9 @@ export async function queryGoogleGeocode(
   query: string,
   apiKey: string
 ): Promise<ExternalGeocodeResponse | null> {
-  const boundsParam = `${TAMIL_NADU_BOUNDS.minLat},${TAMIL_NADU_BOUNDS.minLon}|${TAMIL_NADU_BOUNDS.maxLat},${TAMIL_NADU_BOUNDS.maxLon}`;
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
     query
-  )}&region=in&bounds=${boundsParam}&components=country:IN|administrative_area:Tamil Nadu&key=${apiKey}`;
+  )}&region=in&components=country:IN&key=${apiKey}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -251,38 +256,79 @@ export async function resolveLocationTiered(
   const searchKey = normalizeKey(query);
 
   // ----------------------------------------------------
-  // Tier 1: Local Tamil Nadu Dictionary & Fuzzy Matcher
+  // Tier 0: User Manual Override Cache (< 0.001ms)
+  // If an admin/staff manually assigned this city to a branch or marked outside, respect with highest priority
   // ----------------------------------------------------
-  const dictResult = resolveLocation(query);
-  if (dictResult.matched) {
+  if (!options?.skipCache && searchKey) {
+    try {
+      await ensureLocationCacheLoaded();
+      const cached = getCachedLocationFromMemory(searchKey);
+      if (cached && cached.source === 'manual_override') {
+        return {
+          matched: true,
+          query,
+          canonicalName: cached.canonicalName || query,
+          district: cached.district,
+          state: cached.state,
+          latitude: cached.latitude,
+          longitude: cached.longitude,
+          source: 'manual_override',
+          confidence: 1.0,
+          isTamilNadu: cached.isTamilNadu,
+        };
+      }
+    } catch (err) {
+      console.warn('Manual override cache check warning:', err);
+    }
+  }
+
+  // ----------------------------------------------------
+  // Tier 1: Exact Tamil Nadu Dictionary Resolution (O(1) < 0.001ms)
+  // Exact canonical names, native Tamil script, curated aliases, or TN pincodes
+  // ----------------------------------------------------
+  const exactDictResult = resolveLocation(query, { exactOnly: true });
+  if (exactDictResult.matched) {
     return {
       matched: true,
       query,
-      canonicalName: dictResult.canonicalName,
-      district: dictResult.district,
+      canonicalName: exactDictResult.canonicalName,
+      district: exactDictResult.district,
       state: 'Tamil Nadu',
-      latitude: dictResult.latitude,
-      longitude: dictResult.longitude,
-      pincode: dictResult.pincode,
+      latitude: exactDictResult.latitude,
+      longitude: exactDictResult.longitude,
+      pincode: exactDictResult.pincode,
       source: 'dictionary',
-      confidence: dictResult.confidence,
+      confidence: exactDictResult.confidence,
       isTamilNadu: true,
     };
   }
 
+  // If query is an out-of-state pincode, return early as outside TN
+  if (exactDictResult.isOutOfState) {
+    return {
+      matched: true,
+      query,
+      canonicalName: query,
+      district: '',
+      state: 'Outside Tamil Nadu',
+      latitude: 0,
+      longitude: 0,
+      source: 'none',
+      confidence: 1.0,
+      isTamilNadu: false,
+    };
+  }
+
   // ----------------------------------------------------
-  // Tier 2: PostgreSQL LocationCache Lookup
+  // Tier 2: In-Memory LocationCache Lookup (< 0.001ms)
+  // Geocoded cache populated from external API / past resolutions
   // ----------------------------------------------------
   if (!options?.skipCache && searchKey) {
     try {
-      const cached = await prisma.locationCache.findUnique({
-        where: { searchTerm: searchKey },
-      });
+      await ensureLocationCacheLoaded();
+      const cached = getCachedLocationFromMemory(searchKey);
 
       if (cached) {
-        const isTN =
-          isTamilNaduState(cached.state) &&
-          isWithinTamilNaduBounds(cached.latitude, cached.longitude);
         return {
           matched: true,
           query,
@@ -293,11 +339,33 @@ export async function resolveLocationTiered(
           longitude: cached.longitude,
           source: 'cache',
           confidence: 0.95,
-          isTamilNadu: isTN,
+          isTamilNadu: cached.isTamilNadu,
         };
       }
+
+      // Check if any word or normalized token matches an in-memory cached location
+      const memoryEntries = getAllCachedLocationsFromMemory();
+      const tokens = query.toLowerCase().split(/[\s,.-]+/).filter((t) => t.length >= 3);
+      for (const t of tokens) {
+        const normT = normalizeKey(t);
+        const match = memoryEntries.get(normT);
+        if (match) {
+          return {
+            matched: true,
+            query,
+            canonicalName: match.canonicalName,
+            district: match.district,
+            state: match.state,
+            latitude: match.latitude,
+            longitude: match.longitude,
+            source: 'cache',
+            confidence: 0.90,
+            isTamilNadu: match.isTamilNadu,
+          };
+        }
+      }
     } catch (err) {
-      console.warn('LocationCache lookup warning:', err);
+      console.warn('In-memory LocationCache lookup warning:', err);
     }
   }
 
@@ -318,7 +386,7 @@ export async function resolveLocationTiered(
   }
 
   // ----------------------------------------------------
-  // Tier 3: Rate-Limited External Geocoding + DB Persistence
+  // Tier 3: Rate-Limited External Geocoding + DB & Memory Persistence
   // ----------------------------------------------------
   const googleApiKey = options?.googleApiKey || process.env.GOOGLE_GEOCODING_API_KEY;
 
@@ -331,36 +399,23 @@ export async function resolveLocationTiered(
     });
 
     if (geoResponse) {
-      const isTN =
-        isTamilNaduState(geoResponse.state) &&
-        isWithinTamilNaduBounds(geoResponse.latitude, geoResponse.longitude);
+      const isTN = geoResponse.state
+        ? isTamilNaduState(geoResponse.state)
+        : isWithinTamilNaduBounds(geoResponse.latitude, geoResponse.longitude);
 
-      // Persist into LocationCache asynchronously to prevent repeat queries
+      // Persist into in-memory cache and DB LocationCache
       if (searchKey) {
-        try {
-          await prisma.locationCache.upsert({
-            where: { searchTerm: searchKey },
-            update: {
-              canonicalName: geoResponse.canonicalName,
-              district: geoResponse.district,
-              state: geoResponse.state,
-              latitude: geoResponse.latitude,
-              longitude: geoResponse.longitude,
-              source: geoResponse.source,
-            },
-            create: {
-              searchTerm: searchKey,
-              canonicalName: geoResponse.canonicalName,
-              district: geoResponse.district,
-              state: geoResponse.state,
-              latitude: geoResponse.latitude,
-              longitude: geoResponse.longitude,
-              source: geoResponse.source,
-            },
-          });
-        } catch (cacheErr) {
-          console.warn('LocationCache upsert warning:', cacheErr);
-        }
+        setCachedLocation(searchKey, {
+          canonicalName: geoResponse.canonicalName,
+          district: geoResponse.district,
+          state: geoResponse.state,
+          latitude: geoResponse.latitude,
+          longitude: geoResponse.longitude,
+          source: geoResponse.source,
+          isTamilNadu: isTN,
+        }).catch((cacheErr) => {
+          console.warn('LocationCache save warning:', cacheErr);
+        });
       }
 
       return {
@@ -378,6 +433,40 @@ export async function resolveLocationTiered(
     }
   } catch (err) {
     console.error('External geocoding error:', err);
+  }
+
+  // ----------------------------------------------------
+  // Tier 3.5: Smart Misspelling Fallback for Typo-Tolerant Tamil Nadu Locations
+  // If external geocoder didn't resolve the string (e.g. typos like "Coimbatoor", "Saravanampati")
+  // ----------------------------------------------------
+  const fuzzyResult = resolveLocation(query);
+  if (fuzzyResult.matched) {
+    if (searchKey) {
+      setCachedLocation(searchKey, {
+        canonicalName: fuzzyResult.canonicalName,
+        district: fuzzyResult.district,
+        state: 'Tamil Nadu',
+        latitude: fuzzyResult.latitude,
+        longitude: fuzzyResult.longitude,
+        source: 'dictionary',
+        isTamilNadu: true,
+      }).catch((cacheErr) => {
+        console.warn('LocationCache save warning:', cacheErr);
+      });
+    }
+
+    return {
+      matched: true,
+      query,
+      canonicalName: fuzzyResult.canonicalName,
+      district: fuzzyResult.district,
+      state: 'Tamil Nadu',
+      latitude: fuzzyResult.latitude,
+      longitude: fuzzyResult.longitude,
+      source: 'dictionary',
+      confidence: fuzzyResult.confidence,
+      isTamilNadu: true,
+    };
   }
 
   // ----------------------------------------------------

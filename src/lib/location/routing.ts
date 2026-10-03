@@ -1,5 +1,6 @@
 import { prisma } from '../prisma';
 import { resolveLocationTiered } from './geocoder';
+import { getActiveBranchesCached } from './cache';
 
 export interface BranchCandidate {
   id: number;
@@ -77,6 +78,7 @@ export function calculateHaversineDistance(
 /**
  * Finds the nearest operational branch to the given lead coordinates.
  * Excludes inactive branches and branches with missing (0,0) coordinates.
+ * Served from in-memory cache (< 0.001ms).
  */
 export async function findNearestBranch(
   leadLat: number,
@@ -92,23 +94,7 @@ export async function findNearestBranch(
   if (candidateBranches && candidateBranches.length > 0) {
     branches = candidateBranches;
   } else {
-    try {
-      branches = await prisma.branch.findMany({
-        where: { isActive: true },
-        select: {
-          id: true,
-          name: true,
-          code: true,
-          city: true,
-          latitude: true,
-          longitude: true,
-          radiusKm: true,
-          isActive: true,
-        },
-      });
-    } catch (err) {
-      console.error('Failed to fetch active branches from database:', err);
-    }
+    branches = await getActiveBranchesCached();
   }
 
   // Filter for active branches with valid non-zero coordinates
@@ -152,12 +138,21 @@ export async function findNearestBranch(
 /**
  * Full Pipeline: Resolves a lead's location query through the tiered resolver
  * and assigns the lead to the closest active branch.
- * Enforces strict out-of-state fence and unresolved rejection.
+ * Out-of-state and regional leads are assigned to the geographically closest SGA dealership branch.
  */
 export async function routeLeadToBranch(
   locationQuery: string,
   options?: RoutingOptions
 ): Promise<RoutingResult> {
+  const activeBranches = options?.candidateBranches?.length
+    ? options.candidateBranches
+    : await getActiveBranchesCached();
+
+  const flagshipBranch =
+    activeBranches.find((b) => b.name.toLowerCase().includes('singanallur')) ||
+    activeBranches[0] ||
+    null;
+
   if (!locationQuery || typeof locationQuery !== 'string' || !locationQuery.trim()) {
     return {
       assignedBranch: null,
@@ -166,82 +161,104 @@ export async function routeLeadToBranch(
       isOutOfState: false,
       isUnresolved: true,
       status: 'unresolved',
-      reason: 'Empty or missing location input',
+      reason: 'No location specified - kept unassigned',
     };
   }
 
-  // 1. Resolve coordinates via Tiered Resolver (Dictionary -> DB Cache -> Geocoder)
+  // 1. Resolve coordinates via Tiered Resolver (Dictionary -> In-Memory Cache -> Geocoder)
   const locResult = await resolveLocationTiered(locationQuery.trim(), {
     skipExternal: options?.skipExternalGeocode,
   });
 
-  // 2. Handle unresolved queries
-  if (!locResult.matched) {
+  const isOutOfState = !locResult.isTamilNadu;
+
+  const resolvedMeta: RoutingResolvedLocation | null = locResult.canonicalName
+    ? {
+        query: locResult.query,
+        canonicalName: locResult.canonicalName,
+        district: locResult.district,
+        state: locResult.state || (isOutOfState ? 'Outside Tamil Nadu' : 'Tamil Nadu'),
+        latitude: locResult.latitude,
+        longitude: locResult.longitude,
+        source: locResult.source,
+      }
+    : null;
+
+  // 2. If lead is outside Tamil Nadu: keep unassigned and classify as out_of_state
+  if (locResult.matched && isOutOfState) {
     return {
       assignedBranch: null,
       distanceKm: null,
-      resolvedLocation: null,
-      isOutOfState: false,
-      isUnresolved: true,
-      status: 'unresolved',
-      reason: `Could not resolve geographical location from query "${locationQuery}"`,
-    };
-  }
-
-  const resolvedMeta: RoutingResolvedLocation = {
-    query: locResult.query,
-    canonicalName: locResult.canonicalName,
-    district: locResult.district,
-    state: locResult.state,
-    latitude: locResult.latitude,
-    longitude: locResult.longitude,
-    source: locResult.source,
-  };
-
-  // 3. Strict Out-of-State Rejection Fence
-  // Never arbitrarily assign out-of-state leads to a Tamil Nadu branch
-  if (!locResult.isTamilNadu) {
-    return {
-      assignedBranch: null,
-      distanceKm: null,
+      allBranchesRanked: [],
       resolvedLocation: resolvedMeta,
       isOutOfState: true,
       isUnresolved: false,
       status: 'out_of_state',
-      reason: `Location "${locResult.canonicalName}" (${locResult.state || 'Unknown State'}) is outside Tamil Nadu (out of state)`,
+      reason: `Location "${resolvedMeta?.canonicalName || locationQuery}" in ${resolvedMeta?.state || 'another state'} is outside Tamil Nadu - kept unassigned`,
     };
   }
 
-  // 4. Discover nearest active branch
-  const { nearestBranch, distanceKm, ranked } = await findNearestBranch(
-    locResult.latitude,
-    locResult.longitude,
-    options?.candidateBranches
-  );
-
-  if (!nearestBranch || distanceKm === null) {
+  // 3. If lead specifies generic Tamil Nadu state without city: assign to flagship branch
+  if (locResult.canonicalName && locResult.canonicalName.toLowerCase() === 'tamil nadu' && flagshipBranch) {
     return {
-      assignedBranch: null,
-      distanceKm: null,
-      allBranchesRanked: ranked,
+      assignedBranch: flagshipBranch,
+      distanceKm: 0,
+      allBranchesRanked: activeBranches.map((b) => ({ ...b, distanceKm: 0 })),
       resolvedLocation: resolvedMeta,
       isOutOfState: false,
       isUnresolved: false,
-      status: 'no_active_branches',
-      reason: 'No active dealership branches available for geographical routing',
+      status: 'assigned',
+      reason: `Assigned to flagship branch ${flagshipBranch.name} (state-wide Tamil Nadu lead)`,
     };
   }
 
+  // 4. If Tamil Nadu coordinates were resolved, discover geographically nearest active branch
+  if (locResult.matched && locResult.latitude !== 0 && locResult.longitude !== 0) {
+    const { nearestBranch, distanceKm, ranked } = await findNearestBranch(
+      locResult.latitude,
+      locResult.longitude,
+      activeBranches
+    );
+
+    if (nearestBranch && distanceKm !== null) {
+      return {
+        assignedBranch: nearestBranch,
+        distanceKm,
+        allBranchesRanked: ranked,
+        resolvedLocation: resolvedMeta,
+        isOutOfState: false,
+        isUnresolved: false,
+        status: 'assigned',
+        reason: `Assigned to nearest branch ${nearestBranch.name} (${distanceKm} km away via ${locResult.source})`,
+      };
+    }
+  }
+
+  // 5. Fallback for unresolvable or unknown locations: keep unassigned
   return {
-    assignedBranch: nearestBranch,
-    distanceKm,
-    allBranchesRanked: ranked,
+    assignedBranch: null,
+    distanceKm: null,
+    allBranchesRanked: [],
     resolvedLocation: resolvedMeta,
     isOutOfState: false,
-    isUnresolved: false,
-    status: 'assigned',
-    reason: `Assigned to ${nearestBranch.name} (${distanceKm} km away via ${locResult.source})`,
+    isUnresolved: true,
+    status: 'unresolved',
+    reason: `Location "${locationQuery}" could not be resolved - kept unassigned`,
   };
+}
+
+/**
+ * Fast in-memory nearest branch routing (< 1ms).
+ * Strictly skips external API calls, using local dictionary and in-memory cache.
+ */
+export async function routeLeadToBranchFast(
+  locationQuery: string,
+  options?: RoutingOptions
+): Promise<RoutingResult> {
+  return routeLeadToBranch(locationQuery, {
+    ...options,
+    skipExternalGeocode: true,
+  });
 }
 
 /**

@@ -1,4 +1,4 @@
-export type LocationType = 'district' | 'city' | 'town' | 'taluk' | 'hub';
+export type LocationType = 'district' | 'city' | 'town' | 'taluk' | 'hub' | 'state';
 
 export interface LocationNode {
   id: string;
@@ -9,14 +9,17 @@ export interface LocationNode {
   longitude: number;
   pincodes?: string[];
   aliases?: string[];
+  state?: string;
 }
 
 export type LocationMatchType =
   | 'pincode'
   | 'exact'
   | 'alias'
+  | 'tamil'
   | 'substring'
   | 'fuzzy'
+  | 'state'
   | 'none';
 
 export interface LocationMatchResult {
@@ -29,6 +32,7 @@ export interface LocationMatchResult {
   pincode?: string;
   matchType: LocationMatchType;
   confidence: number; // 0.0 to 1.0
+  isOutOfState?: boolean;
 }
 
 export interface MatcherOptions {

@@ -649,6 +649,7 @@ export async function findAndWriteToSheetRow(
   if (mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0) allowedCols.add(mapping.followUpDate2);
   if (mapping.testDrive !== undefined && mapping.testDrive >= 0) allowedCols.add(mapping.testDrive);
   if (mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) allowedCols.add(mapping.assignedConsultant);
+  if (mapping.branch !== undefined && mapping.branch >= 0) allowedCols.add(mapping.branch);
 
   const safeUpdates = updates.filter(u => allowedCols.has(u.col));
   if (safeUpdates.length === 0) return null;

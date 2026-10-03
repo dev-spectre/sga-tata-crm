@@ -90,23 +90,25 @@ export async function POST() {
         continue;
       }
 
-      // Step A: Local TN Dictionary
-      const dictMatch = resolveLocation(rawCity);
+      // Step A: In-memory cache map (manual overrides & geocoded cache)
+      const cached = cacheMap.get(rawCity.toLowerCase());
       let lat: number | null = null;
       let lon: number | null = null;
       let isTn = false;
 
-      if (dictMatch && dictMatch.matched) {
-        lat = dictMatch.latitude;
-        lon = dictMatch.longitude;
-        isTn = true;
+      if (cached) {
+        lat = cached.lat;
+        lon = cached.lon;
+        isTn = cached.state
+          ? isTamilNaduState(cached.state)
+          : isWithinTamilNaduBounds(cached.lat, cached.lon);
       } else {
-        // Step B: In-memory cache map
-        const cached = cacheMap.get(rawCity.toLowerCase());
-        if (cached) {
-          lat = cached.lat;
-          lon = cached.lon;
-          isTn = isTamilNaduState(cached.state) || isWithinTamilNaduBounds(cached.lat, cached.lon);
+        // Step B: Local TN Dictionary
+        const dictMatch = resolveLocation(rawCity);
+        if (dictMatch && dictMatch.matched) {
+          lat = dictMatch.latitude;
+          lon = dictMatch.longitude;
+          isTn = true;
         }
       }
 

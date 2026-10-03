@@ -4,8 +4,26 @@ import {
   PINCODE_INDEX,
   EXACT_INDEX,
   ALIAS_INDEX,
+  TAMIL_SCRIPT_MAP,
   normalizeKey,
+  UNICODE_LOOKALIKES,
 } from './tn-locations';
+
+/**
+ * Checks whether two words share a compatible first letter or common transliteration pair.
+ * Helps prevent false identification of other Indian cities (e.g. Nellore vs Vellore, Kanpur vs Annur).
+ */
+export function areFirstLettersCompatible(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const c1 = a[0];
+  const c2 = b[0];
+  if (c1 === c2) return true;
+  // Transliteration pair: c and k (e.g. Coimbatore / Koimbatore, Cuddalore / Kuddalore)
+  if ((c1 === 'c' && c2 === 'k') || (c1 === 'k' && c2 === 'c')) return true;
+  // t and th
+  if ((a.startsWith('th') && c2 === 't') || (b.startsWith('th') && c1 === 't')) return true;
+  return false;
+}
 
 // Noise words stripped during string tokenization
 const NOISE_WORDS = new Set([
@@ -31,17 +49,50 @@ const NOISE_WORDS = new Set([
   'bus',
   'stand',
   'stop',
+  'village',
+  'pincode',
+  'pin',
+  'no',
 ]);
 
 /**
  * Normalizes an incoming location/city string:
- * lowercases, removes punctuation, strips common noise words.
+ * 1. Converts stylized unicode & homoglyphs
+ * 2. Lowercases and applies NFKD
+ * 3. Corrects embedded OCR / typo digits
+ * 4. Preserves Tamil characters and alphanumeric tokens
  */
 export function normalizeString(input: string): string {
   if (!input) return '';
-  return input
-    .toLowerCase()
-    .replace(/[^\w\s]/g, ' ') // replace punctuation with spaces
+
+  // 1. Substitute lookalikes
+  let s = '';
+  for (const ch of input) {
+    s += UNICODE_LOOKALIKES[ch] || ch;
+  }
+
+  // 2. NFKD lowercase
+  s = s.normalize('NFKD').toLowerCase();
+
+  // 3. Embedded typo/OCR digits
+  s = s
+    .replace(/([a-z])0([a-z])/g, '$1o$2')
+    .replace(/0([a-z])/g, 'o$1')
+    .replace(/([a-z])0/g, '$1o')
+    .replace(/([a-z])1([a-z])/g, '$1i$2')
+    .replace(/([a-z])5([a-z])/g, '$1s$2');
+
+  // 4. Strip single-letter initial dot prefix (e.g. "t.kallupatti" -> "kallupatti", "p.n. patti" -> "pn patti")
+  s = s.replace(/\b[a-z]\.\s*/g, ' ');
+
+  // 5. Replace parentheses and punctuation with spaces
+  s = s.replace(/[()[\]{},;:\/\\_-]/g, ' ');
+
+  // 6. Strip standalone non-pincode numbers (e.g. "coimbatore 24." -> "coimbatore")
+  s = s.replace(/\b\d{1,5}\b/g, ' ');
+
+  return s
+    .replace(/[^\w\s\u0B80-\u0BFF]/g, ' ')
     .split(/\s+/)
     .filter((token) => token.length > 0 && !NOISE_WORDS.has(token))
     .join(' ')
@@ -49,18 +100,30 @@ export function normalizeString(input: string): string {
 }
 
 /**
- * Extracts a 6-digit Tamil Nadu postal code (600xxx to 643xxx) if present.
+ * Extracts a 6-digit Tamil Nadu postal code (600xxx to 643xxx) anywhere in string.
+ * Also detects out-of-state pincodes (100000 to 599999 or 670000 to 899999).
  */
-export function extractPincode(input: string): string | null {
-  if (!input) return null;
-  const match = input.match(/\b(6[0-4]\d{4})\b/);
-  return match ? match[1] : null;
+export function extractPincode(input: string): { pincode: string | null; isOutOfStatePincode: boolean } {
+  if (!input) return { pincode: null, isOutOfStatePincode: false };
+
+  // Look for any 6-digit sequence embedded or separated
+  const match = input.match(/(?:^|\D)([1-8]\d{5})(?:\D|$)/);
+  if (!match) return { pincode: null, isOutOfStatePincode: false };
+
+  const pin = match[1];
+  const pinNum = parseInt(pin, 10);
+
+  // Tamil Nadu pincodes strictly range between 600001 and 643999 (plus Puducherry 605xxx, Karaikal 6096xx)
+  if (pinNum >= 600001 && pinNum <= 643999) {
+    return { pincode: pin, isOutOfStatePincode: false };
+  }
+
+  // Any other 6-digit Indian pincode is out-of-state (e.g. Bangalore 560091, Kerala 670xxx-695xxx, etc.)
+  return { pincode: null, isOutOfStatePincode: true };
 }
 
 /**
  * Fast Damerau-Levenshtein distance with transposition support.
- * Computes the minimum number of insertions, deletions, substitutions,
- * or transpositions of two adjacent characters.
  */
 export function damerauLevenshtein(a: string, b: string): number {
   const la = a.length;
@@ -69,7 +132,6 @@ export function damerauLevenshtein(a: string, b: string): number {
   if (la === 0) return lb;
   if (lb === 0) return la;
 
-  // 2D distance matrix (optimized for short word lengths)
   const d: number[][] = Array.from({ length: la + 1 }, () =>
     new Array(lb + 1).fill(0)
   );
@@ -116,21 +178,54 @@ export function calculateSimilarity(
 }
 
 /**
+ * Phonetic & Tamil transliteration canonicalization.
+ * Replaces common Tamil English spelling permutations:
+ * - th/t, dh/d, b/p, g/k, zh/l
+ * - deduplicates consonants (tt -> t, pp -> p, etc.)
+ */
+export function phoneticCanonicalize(word: string): string {
+  if (!word || word.length < 3) return word;
+  return word
+    .toLowerCase()
+    .replace(/th/g, 't')
+    .replace(/dh/g, 'd')
+    .replace(/zh/g, 'l')
+    .replace(/ai|ay|ey/g, 'e')
+    .replace(/oo/g, 'u')
+    .replace(/ee/g, 'i')
+    .replace(/b/g, 'p')
+    .replace(/g/g, 'k')
+    .replace(/([a-z])\1+/g, '$1'); // deduplicate double letters (tt->t, pp->p, kk->k)
+}
+
+/**
  * Pre-compiled list of candidate targets for fuzzy scanning
  */
 interface FuzzyCandidate {
   key: string;
+  phoneticKey: string;
   node: LocationNode;
 }
 
 const FUZZY_CANDIDATES: FuzzyCandidate[] = [];
 for (const loc of TN_LOCATIONS) {
-  FUZZY_CANDIDATES.push({ key: normalizeKey(loc.name), node: loc });
+  const k = normalizeKey(loc.name);
+  if (k && k.length >= 3) {
+    FUZZY_CANDIDATES.push({
+      key: k,
+      phoneticKey: phoneticCanonicalize(k),
+      node: loc,
+    });
+  }
   if (loc.aliases) {
     for (const alias of loc.aliases) {
-      const k = normalizeKey(alias);
-      if (k && k.length >= 3) {
-        FUZZY_CANDIDATES.push({ key: k, node: loc });
+      const ak = normalizeKey(alias);
+      if (ak && ak.length >= 3) {
+        FUZZY_CANDIDATES.push({
+          key: ak,
+          phoneticKey: phoneticCanonicalize(ak),
+          node: loc,
+        });
       }
     }
   }
@@ -138,11 +233,13 @@ for (const loc of TN_LOCATIONS) {
 
 /**
  * Resolves an arbitrary location or city query string to a canonical Tamil Nadu location.
- * Evaluates through a 4-tier cascade:
- *   1. 6-digit Pincode matching
- *   2. Exact Canonical & Alias O(1) hash lookup
- *   3. Token/Substring matching
- *   4. Typo-tolerant Damerau-Levenshtein edit-distance
+ * Evaluates through an intelligent cascade:
+ *   0. Out-of-State / Junk early rejection
+ *   1. Tamil Native Script direct resolution
+ *   2. 6-digit Pincode matching
+ *   3. Exact Canonical & Alias O(1) hash lookup
+ *   4. Substring & Word Token extraction (address scanning)
+ *   5. Typo-tolerant Phonetic & Damerau-Levenshtein edit-distance
  */
 export function resolveLocation(
   rawQuery: string,
@@ -162,14 +259,107 @@ export function resolveLocation(
   }
 
   const query = rawQuery.trim();
-  const minConfidence = options?.minConfidence ?? 0.75;
+  const minConfidence = options?.minConfidence ?? 0.70;
 
   // ----------------------------------------------------
-  // Stage 1: Pincode Resolution (O(1))
+  // Stage 0: Out-of-State / Junk Early Filtering
   // ----------------------------------------------------
-  const pincode = extractPincode(query);
-  if (pincode) {
-    const node = PINCODE_INDEX.get(pincode);
+  const normKey = normalizeKey(query);
+
+  // Check out-of-state pincode (e.g. Bangalore560091)
+  const pinCheck = extractPincode(query);
+  if (pinCheck.isOutOfStatePincode) {
+    return {
+      matched: false,
+      query,
+      canonicalName: '',
+      district: '',
+      latitude: 0,
+      longitude: 0,
+      matchType: 'none',
+      confidence: 0,
+      isOutOfState: true,
+    };
+  }
+
+
+  // Check if query is pure numbers / phone numbers or too short junk
+  if (/^\d{6,}$/.test(normKey) && !pinCheck.pincode) {
+    return {
+      matched: false,
+      query,
+      canonicalName: '',
+      district: '',
+      latitude: 0,
+      longitude: 0,
+      matchType: 'none',
+      confidence: 0,
+    };
+  }
+
+  if (normKey.length < 2 && !/[\u0B80-\u0BFF]/.test(query)) {
+    return {
+      matched: false,
+      query,
+      canonicalName: '',
+      district: '',
+      latitude: 0,
+      longitude: 0,
+      matchType: 'none',
+      confidence: 0,
+    };
+  }
+
+  // ----------------------------------------------------
+  // Stage 1: Tamil Native Script Direct Resolution (O(1))
+  // ----------------------------------------------------
+  if (/[\u0B80-\u0BFF]/.test(query)) {
+    // 1. Direct map lookup
+    const canonicalFromTamil = TAMIL_SCRIPT_MAP[query] || TAMIL_SCRIPT_MAP[normKey];
+    if (canonicalFromTamil) {
+      const node = EXACT_INDEX.get(normalizeKey(canonicalFromTamil));
+      if (node) {
+        return {
+          matched: true,
+          query,
+          canonicalName: node.name,
+          district: node.district,
+          latitude: node.latitude,
+          longitude: node.longitude,
+          matchType: 'tamil',
+          confidence: 1.0,
+        };
+      }
+    }
+
+    // 2. Token-level Tamil map lookup
+    const tamilTokens = query.split(/[\s,.-]+/);
+    for (const tk of tamilTokens) {
+      const cleanTk = tk.trim();
+      const mapped = TAMIL_SCRIPT_MAP[cleanTk] || TAMIL_SCRIPT_MAP[normalizeKey(cleanTk)];
+      if (mapped) {
+        const node = EXACT_INDEX.get(normalizeKey(mapped));
+        if (node) {
+          return {
+            matched: true,
+            query,
+            canonicalName: node.name,
+            district: node.district,
+            latitude: node.latitude,
+            longitude: node.longitude,
+            matchType: 'tamil',
+            confidence: 0.98,
+          };
+        }
+      }
+    }
+  }
+
+  // ----------------------------------------------------
+  // Stage 2: 6-Digit Tamil Nadu Pincode Matching (O(1))
+  // ----------------------------------------------------
+  if (pinCheck.pincode) {
+    const node = PINCODE_INDEX.get(pinCheck.pincode);
     if (node) {
       return {
         matched: true,
@@ -178,7 +368,7 @@ export function resolveLocation(
         district: node.district,
         latitude: node.latitude,
         longitude: node.longitude,
-        pincode,
+        pincode: pinCheck.pincode,
         matchType: 'pincode',
         confidence: 1.0,
       };
@@ -186,11 +376,9 @@ export function resolveLocation(
   }
 
   // ----------------------------------------------------
-  // Stage 2: Exact Canonical & Curated Alias Lookup (O(1))
+  // Stage 3: Exact Canonical & Curated Alias Lookup (O(1))
   // ----------------------------------------------------
-  const normKey = normalizeKey(query);
   if (normKey) {
-    // Check exact name
     const exactNode = EXACT_INDEX.get(normKey);
     if (exactNode) {
       return {
@@ -205,7 +393,6 @@ export function resolveLocation(
       };
     }
 
-    // Check curated aliases (e.g. cbe, kovai, trichy, mdu, ooty, mtp)
     const aliasNode = ALIAS_INDEX.get(normKey);
     if (aliasNode) {
       return {
@@ -221,14 +408,33 @@ export function resolveLocation(
     }
   }
 
+  // Also check parenthetical token if present, e.g. "Ooty (Udhagamandalam)"
+  const parenMatch = query.match(/\(([^)]+)\)/);
+  if (parenMatch) {
+    const parenKey = normalizeKey(parenMatch[1]);
+    if (parenKey) {
+      const parenNode = EXACT_INDEX.get(parenKey) || ALIAS_INDEX.get(parenKey);
+      if (parenNode) {
+        return {
+          matched: true,
+          query,
+          canonicalName: parenNode.name,
+          district: parenNode.district,
+          latitude: parenNode.latitude,
+          longitude: parenNode.longitude,
+          matchType: 'alias',
+          confidence: 0.98,
+        };
+      }
+    }
+  }
+
   // ----------------------------------------------------
-  // Stage 3: Substring & Word Token Extraction
+  // Stage 4: Substring & Word Token Extraction
   // ----------------------------------------------------
   const cleaned = normalizeString(query);
   const tokens = cleaned.split(/\s+/).filter((t) => t.length >= 2);
 
-  // Score candidate tokens: prioritize exact names over aliases,
-  // district/city authority over local hubs, and later tokens (which in Indian addresses denote city/district)
   let bestTokenMatch: {
     node: LocationNode;
     score: number;
@@ -237,7 +443,8 @@ export function resolveLocation(
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     const tokenKey = normalizeKey(token);
-    if (!tokenKey) continue;
+    // Ignore short noise tokens
+    if (!tokenKey || tokenKey.length < 4) continue;
 
     const posBoost = tokens.length > 1 ? (i / (tokens.length - 1)) * 0.02 : 0;
     const lenBoost = Math.min(0.05, (token.length / 12) * 0.05);
@@ -272,11 +479,10 @@ export function resolveLocation(
       latitude: bestTokenMatch.node.latitude,
       longitude: bestTokenMatch.node.longitude,
       matchType: 'substring',
-      confidence: Math.min(0.95, Number(bestTokenMatch.score.toFixed(3))),
+      confidence: Math.min(0.96, Number(bestTokenMatch.score.toFixed(3))),
     };
   }
 
-  // If client only requested exact matches, exit early
   if (options?.exactOnly) {
     return {
       matched: false,
@@ -291,30 +497,61 @@ export function resolveLocation(
   }
 
   // ----------------------------------------------------
-  // Stage 4: Typo-Tolerant Fuzzy Edit Distance
+  // Stage 5: Smart Misspelling Algorithm for Tamil Nadu Locations
+  // Uses strict length guards and first-letter compatibility so real
+  // out-of-state cities (e.g. Pune, Kota, Bhind, Nellore, Patna, Kanpur)
+  // are NEVER falsely matched to obscure Tamil Nadu hamlets.
   // ----------------------------------------------------
-  // Target string to scan: prefer single cleaned word if available, else primary token
-  const targetWords = tokens.length > 0 ? tokens : [normKey];
+  const targetWords: string[] = [];
+  // Rule A: Word must be at least 5 letters for fuzzy matching (len < 5 is exact-only)
+  if (normKey && normKey.length >= 5) targetWords.push(normKey);
+  for (const t of tokens) {
+    const tk = normalizeKey(t);
+    if (tk.length >= 5 && !targetWords.includes(tk)) targetWords.push(tk);
+    if (tk.startsWith('th')) {
+      const alt = 't' + tk.slice(2);
+      if (alt.length >= 5 && !targetWords.includes(alt)) targetWords.push(alt);
+    }
+    if (tk.length >= 6 && (tk.endsWith('y') || tk.endsWith('s'))) {
+      const trimmed = tk.slice(0, -1);
+      if (trimmed.length >= 5 && !targetWords.includes(trimmed)) targetWords.push(trimmed);
+    }
+  }
+
   let bestCandidate: LocationNode | null = null;
   let bestScore = 0;
 
   for (const word of targetWords) {
-    if (word.length < 3) continue;
+    const phoneticWord = phoneticCanonicalize(word);
 
     for (const cand of FUZZY_CANDIDATES) {
-      // Length pre-filter: difference greater than 3 means distance is at least 4
+      // Rule B: First letter must be compatible (same letter or transliteration C/K, T/Th)
+      if (!areFirstLettersCompatible(word, cand.key)) continue;
+
+      // Rule C: Length difference must not exceed 2
       const lenDiff = Math.abs(word.length - cand.key.length);
-      if (lenDiff > 3) continue;
+      if (lenDiff > 2) continue;
 
+      // Rule D: Strict Damerau-Levenshtein edit distance scaling
       const dist = damerauLevenshtein(word, cand.key);
+      const maxAllowedDist = word.length >= 8 ? 2 : 1;
 
-      // Allow distance up to 2 (or 3 for long words >= 8 characters)
-      const maxAllowedDist = word.length >= 8 ? 3 : 2;
       if (dist <= maxAllowedDist) {
         const sim = calculateSimilarity(word, cand.key, dist);
-        if (sim >= minConfidence && sim > bestScore) {
+        if (sim >= 0.80 && sim > bestScore) {
           bestScore = sim;
           bestCandidate = cand.node;
+        }
+      }
+
+      // Rule E: Constrained phonetic matching (only for words >= 6 chars with dist <= 2)
+      if (word.length >= 6 && dist <= 2) {
+        if (phoneticWord === cand.phoneticKey) {
+          const pScore = 0.90;
+          if (pScore > bestScore) {
+            bestScore = pScore;
+            bestCandidate = cand.node;
+          }
         }
       }
     }
@@ -334,7 +571,7 @@ export function resolveLocation(
   }
 
   // ----------------------------------------------------
-  // Stage 5: No Match Found (Out-of-State or Unknown)
+  // Stage 6: Unresolved / Unknown Location
   // ----------------------------------------------------
   return {
     matched: false,

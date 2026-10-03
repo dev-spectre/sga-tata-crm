@@ -4,6 +4,8 @@ import { findAndWriteToSheetRow, findAndDeleteSheetRow } from '@/lib/google';
 import { getCurrentUser } from '@/lib/auth';
 import { logLeadDiff, checkLeadLockForUser, resolveLeadHandler, getCachedStaffUsers } from '@/lib/activity';
 import { getCachedSettings } from '@/lib/settings';
+import { setCachedLocation, getActiveBranchesCached } from '@/lib/location/cache';
+import { normalizeKey } from '@/lib/location/tn-locations';
 
 export async function PATCH(
   request: NextRequest,
@@ -55,8 +57,59 @@ export async function PATCH(
     if (clearConsultant === true) updateData.assignedConsultant = null;
     if (testDrive !== undefined) updateData.testDrive = testDrive;
     if (branch !== undefined) {
-      updateData.branch = typeof branch === 'string' ? branch.trim() : '';
+      const rawBranch = typeof branch === 'string' ? branch.trim() : '';
+      const lowerRawBranch = rawBranch.toLowerCase().trim();
+      const activeBranches = await getActiveBranchesCached();
+
+      const matchedBranch = activeBranches.find((b) => {
+        const bLower = b.name.toLowerCase().trim();
+        const bCode = (b.code || '').toLowerCase().trim();
+        return (
+          bLower === lowerRawBranch ||
+          (bCode && bCode === lowerRawBranch) ||
+          `sga motors ${bLower}` === lowerRawBranch ||
+          `sga ${bLower}` === lowerRawBranch ||
+          lowerRawBranch.replace(/^sga\s+(motors\s+)?/i, '').trim() === bLower
+        );
+      });
+
+      if (matchedBranch) {
+        updateData.branch = matchedBranch.name;
+      } else if (rawBranch === '' || lowerRawBranch === 'unassigned' || lowerRawBranch === 'other') {
+        updateData.branch = '';
+      } else {
+        updateData.branch = rawBranch;
+      }
       updateData.isBranchManual = true;
+
+      // Smart Cache Feedback: Update LocationCache for lead.city so future auto-assignments route smartly
+      const leadCity = (lead.city || '').trim();
+      if (leadCity) {
+        const normKey = normalizeKey(leadCity);
+        if (normKey) {
+          if (matchedBranch && typeof matchedBranch.latitude === 'number' && typeof matchedBranch.longitude === 'number') {
+            setCachedLocation(normKey, {
+              canonicalName: leadCity,
+              district: matchedBranch.city || matchedBranch.name,
+              state: 'Tamil Nadu',
+              latitude: matchedBranch.latitude,
+              longitude: matchedBranch.longitude,
+              source: 'manual_override',
+              isTamilNadu: true,
+            }).catch((err) => console.warn('Failed to update LocationCache on manual branch edit:', err));
+          } else if (updateData.branch === '') {
+            setCachedLocation(normKey, {
+              canonicalName: leadCity,
+              district: '',
+              state: 'Outside Tamil Nadu',
+              latitude: 0,
+              longitude: 0,
+              source: 'manual_override',
+              isTamilNadu: false,
+            }).catch((err) => console.warn('Failed to update LocationCache on manual unassign edit:', err));
+          }
+        }
+      }
     }
 
     const updatedLead = await prisma.lead.update({
@@ -117,7 +170,7 @@ export async function PATCH(
           if (testDrive !== undefined && mapping.testDrive !== undefined) {
             updates.push({ col: mapping.testDrive, value: testDrive || '' });
           }
-          if (branch !== undefined && mapping.branch !== undefined) {
+          if (branch !== undefined && mapping.branch !== undefined && mapping.branch >= 0) {
             updates.push({ col: mapping.branch, value: updateData.branch });
           }
 

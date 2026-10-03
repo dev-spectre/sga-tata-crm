@@ -71,11 +71,13 @@ export function sanitizeField(rawVal: string | null | undefined): string {
 export function parseBranches(branchStr: string | null | undefined): string[] {
   if (!branchStr) return [];
   const parsed = String(branchStr).split(',').map(b => {
-    const clean = b.replace(/[_-]/g, ' ').trim().replace(/\s+/g, ' ').toLowerCase();
+    const clean = b.replace(/[_-]/g, ' ').trim().replace(/\s+/g, ' ');
     if (!clean) return '';
     return clean.split(' ').map(w => {
-      if (w.toLowerCase() === 'mtp') return 'MTP';
-      return w.charAt(0).toUpperCase() + w.slice(1);
+      const lower = w.toLowerCase();
+      if (lower === 'sga') return 'SGA';
+      if (lower === 'mtp') return 'MTP';
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
     }).join(' ');
   }).filter(Boolean);
   return Array.from(new Set(parsed));

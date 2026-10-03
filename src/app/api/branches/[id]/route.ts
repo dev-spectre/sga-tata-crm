@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
+import { invalidateBranchCache } from '@/lib/location/cache';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -162,6 +163,7 @@ export async function PUT(
       data: updateData,
     });
 
+    invalidateBranchCache();
     return NextResponse.json({ success: true, branch: updated });
   } catch (error: any) {
     console.error('Update branch error:', error);
@@ -211,6 +213,7 @@ export async function DELETE(
       data: { isActive: false },
     });
 
+    invalidateBranchCache();
     return NextResponse.json({
       success: true,
       message: `Branch "${deactivated.name}" deactivated successfully`,

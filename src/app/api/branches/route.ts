@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { parseBranches } from '@/lib/utils';
+import { invalidateBranchCache } from '@/lib/location/cache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -104,6 +105,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    invalidateBranchCache();
     return NextResponse.json({ success: true, branch: newBranch }, { status: 201 });
   } catch (error: any) {
     console.error('Create branch error:', error);
