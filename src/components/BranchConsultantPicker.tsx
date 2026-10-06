@@ -100,18 +100,12 @@ export default function BranchConsultantPicker({
   }, [branches, consultants]);
 
 
-  // Filtered branches based on search query
+  // Filtered branches based on search query (branch names only)
   const filteredBranches = useMemo(() => {
     if (!searchTerm.trim()) return uniqueBranchesList;
     const query = searchTerm.toLowerCase().trim();
-    return uniqueBranchesList.filter((b) => {
-      const branchMatches = b.toLowerCase().includes(query);
-      const hasMatchingConsultant = (branchMap.get(b.toLowerCase()) || []).some((c) =>
-        c.name.toLowerCase().includes(query)
-      );
-      return branchMatches || hasMatchingConsultant;
-    });
-  }, [uniqueBranchesList, branchMap, searchTerm]);
+    return uniqueBranchesList.filter((b) => b.toLowerCase().includes(query));
+  }, [uniqueBranchesList, searchTerm]);
 
   // Determine label to display on the trigger button
   const displayLabel = useMemo(() => {
