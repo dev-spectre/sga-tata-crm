@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { parsePhoneNumber, parseBranches } from "@/lib/utils";
+import { parsePhoneNumber, parseBranches, formatStatusLabel } from "@/lib/utils";
+import {
+  formatToDDMMYYYY,
+  toISTDateString,
+  getLeadFollowUps,
+  getLeadFollowUpCount,
+} from "@/lib/followup";
 
 interface Lead {
   id: number;
@@ -11,10 +17,22 @@ interface Lead {
   city?: string;
   branch?: string;
   adname?: string;
+  carModel?: string;
+  assignedConsultant?: string | null;
+  testDrive?: string | null;
+  handledBy?: string | null;
   followUpDate1?: string | null;
   followUpDate2?: string | null;
+  followUpCount?: number;
+  followUps?: Array<{ id?: number; step: number; date: string; createdAt?: string }>;
   remark: string | null;
   createdAt: string;
+}
+
+interface ConsultantItem {
+  id: number;
+  name: string;
+  branch: string;
 }
 
 interface Pagination {
@@ -25,17 +43,6 @@ interface Pagination {
 }
 
 const PAGE_SIZE = 20;
-
-const toISTDateString = (isoString?: string | null) => {
-  if (!isoString) return '';
-  const d = new Date(isoString);
-  const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
-  const parts = formatter.formatToParts(d);
-  const y = parts.find(p => p.type === 'year')?.value;
-  const m = parts.find(p => p.type === 'month')?.value;
-  const d_part = parts.find(p => p.type === 'day')?.value;
-  return `${y}-${m}-${d_part}`;
-};
 
 const getTodayISTString = () => {
   const d = new Date();
@@ -53,6 +60,37 @@ const getMonthKey = (date: Date) => {
   const y = parts.find(p => p.type === 'year')?.value;
   const m = parts.find(p => p.type === 'month')?.value;
   return `${y}-${m}`;
+};
+
+const getFollowUpInputsState = (lead: Lead) => {
+  const followUps = getLeadFollowUps(lead);
+  const count = followUps.length;
+
+  if (count <= 1) {
+    return {
+      step1: 1,
+      label1: "1.",
+      val1: followUps[0] ? toISTDateString(followUps[0].date) : "",
+      step2: 2,
+      label2: "2.",
+      val2: "",
+    };
+  }
+
+  return {
+    step1: count,
+    label1: `${count}.`,
+    val1: toISTDateString(followUps[count - 1].date),
+    step2: count + 1,
+    label2: `${count + 1}.`,
+    val2: "",
+  };
+};
+
+const getMatchingStepForDate = (lead: Lead, dateStr: string): number => {
+  const followUps = getLeadFollowUps(lead);
+  const match = followUps.find((f) => toISTDateString(f.date) === dateStr);
+  return match ? match.step : 0;
 };
 
 // In-memory caches for ultra-fast instant UI navigation and minimal data egress
@@ -76,6 +114,160 @@ export default function CalendarPage() {
   const [loadingLeads, setLoadingLeads] = useState(() => !datePageCache[todayStr]?.[1]);
   const [accessRestricted, setAccessRestricted] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [timelineLead, setTimelineLead] = useState<Lead | null>(null);
+
+  const [currentUser, setCurrentUser] = useState<{
+    username?: string;
+    role?: string;
+    isSuperAdmin?: boolean;
+  } | null>(null);
+  const [consultantsList, setConsultantsList] = useState<ConsultantItem[]>([]);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), type === "error" ? 5000 : 3000);
+  }, []);
+
+  const checkIsLeadLocked = useCallback((lead: Lead) => {
+    if (!currentUser) return false;
+    const isSuper = Boolean(
+      currentUser.isSuperAdmin ||
+      currentUser.role === "SUPERADMIN" ||
+      currentUser.username === (process.env.NEXT_PUBLIC_SUPERADMIN_USERNAME || "sudo")
+    );
+    if (currentUser.role === "ADMIN" || isSuper) return false;
+    if (!lead.handledBy || !currentUser.username) return false;
+    return lead.handledBy.trim().toLowerCase() !== currentUser.username.trim().toLowerCase();
+  }, [currentUser]);
+
+  const getConsultantGroupsForLead = useCallback((lead: Lead) => {
+    const leadBranches = lead.branch
+      ? parseBranches(lead.branch).map(b => b.toLowerCase().trim())
+      : [];
+    const rawLeadBranch = (lead.branch || '').toLowerCase().replace(/[_-]/g, ' ').trim();
+
+    const isBranchMatching = (branchName: string) => {
+      if (!branchName || branchName.toLowerCase() === 'other' || branchName.toLowerCase() === 'unassigned') {
+        return false;
+      }
+      if (leadBranches.length === 0 && !rawLeadBranch) {
+        return false;
+      }
+      const bLower = branchName.toLowerCase().trim();
+      return (
+        leadBranches.includes(bLower) ||
+        leadBranches.some(lb => lb === bLower || lb.includes(bLower) || bLower.includes(lb)) ||
+        (rawLeadBranch !== '' && (rawLeadBranch.includes(bLower) || bLower.includes(rawLeadBranch)))
+      );
+    };
+
+    const groupMap = new Map<string, Map<string, ConsultantItem>>();
+
+    const addConsultantToBranch = (branch: string, c: ConsultantItem) => {
+      const cleanBranch = branch.trim() || 'Other';
+      if (!groupMap.has(cleanBranch)) {
+        groupMap.set(cleanBranch, new Map());
+      }
+      const map = groupMap.get(cleanBranch)!;
+      const nameKey = c.name.toLowerCase().trim();
+      if (!map.has(nameKey)) {
+        map.set(nameKey, c);
+      }
+    };
+
+    consultantsList.forEach(c => {
+      if (!c.branch || !c.branch.trim()) {
+        addConsultantToBranch('Other', c);
+      } else {
+        const parsed = parseBranches(c.branch);
+        if (parsed.length > 0) {
+          parsed.forEach(b => addConsultantToBranch(b, c));
+        } else {
+          addConsultantToBranch(c.branch.trim(), c);
+        }
+      }
+    });
+
+    if (lead.assignedConsultant && lead.assignedConsultant.trim()) {
+      const assignedName = lead.assignedConsultant.trim();
+      const assignedLower = assignedName.toLowerCase();
+
+      let foundInAnyGroup = false;
+      for (const m of groupMap.values()) {
+        if (m.has(assignedLower)) {
+          foundInAnyGroup = true;
+          break;
+        }
+      }
+
+      if (!foundInAnyGroup) {
+        const existingInList = consultantsList.find(c => c.name.toLowerCase().trim() === assignedLower);
+        if (existingInList && existingInList.branch) {
+          const parsed = parseBranches(existingInList.branch);
+          if (parsed.length > 0) {
+            parsed.forEach(b => addConsultantToBranch(b, existingInList));
+          } else {
+            addConsultantToBranch(existingInList.branch.trim(), existingInList);
+          }
+        } else {
+          const leadParsed = parseBranches(lead.branch || '');
+          const targetBranch = leadParsed.length > 0 ? leadParsed[0] : (lead.branch?.trim() || 'Other');
+          addConsultantToBranch(targetBranch, {
+            id: -1,
+            name: assignedName,
+            branch: targetBranch
+          });
+        }
+      }
+    }
+
+    const matchingGroups: { branch: string; consultants: ConsultantItem[] }[] = [];
+    const otherGroups: { branch: string; consultants: ConsultantItem[] }[] = [];
+    let otherUnassignedGroup: { branch: string; consultants: ConsultantItem[] } | null = null;
+
+    groupMap.forEach((cMap, branchName) => {
+      const list = Array.from(cMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+      if (list.length === 0) return;
+
+      if (branchName.toLowerCase() === 'other' || branchName.toLowerCase() === 'unassigned') {
+        otherUnassignedGroup = { branch: branchName, consultants: list };
+      } else if (isBranchMatching(branchName)) {
+        matchingGroups.push({ branch: branchName, consultants: list });
+      } else {
+        otherGroups.push({ branch: branchName, consultants: list });
+      }
+    });
+
+    matchingGroups.sort((a, b) => a.branch.localeCompare(b.branch));
+    otherGroups.sort((a, b) => a.branch.localeCompare(b.branch));
+
+    const result = [...matchingGroups, ...otherGroups];
+    if (otherUnassignedGroup) {
+      result.push(otherUnassignedGroup);
+    }
+    return result;
+  }, [consultantsList]);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user) {
+          setCurrentUser(data.user);
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/consultants")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && Array.isArray(data.consultants)) {
+          setConsultantsList(data.consultants);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const activeMonthKey = useMemo(() => getMonthKey(currentDate), [currentDate]);
 
@@ -118,7 +310,7 @@ export default function CalendarPage() {
 
     setLoadingLeads(true);
     try {
-      const res = await fetch(`/api/leads?followUpDate=${dateStr}&page=${pageNum}&limit=${PAGE_SIZE}&fields=calendar&skipStats=true&skipActivities=true`);
+      const res = await fetch(`/api/leads?followUpDate=${dateStr}&page=${pageNum}&limit=${PAGE_SIZE}&fields=calendar&skipStats=true`);
       const data = await res.json();
       if (res.status === 403) {
         setAccessRestricted(true);
@@ -203,73 +395,216 @@ export default function CalendarPage() {
       }
       return next;
     });
+    setSelectedLead(prev => prev && prev.id === id ? { ...prev, ...updates } : prev);
+    setTimelineLead(prev => prev && prev.id === id ? { ...prev, ...updates } : prev);
   };
 
   const handleStatusChange = async (lead: Lead, newStatus: string) => {
+    const isLocked = checkIsLeadLocked(lead);
+    if (isLocked) {
+      showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead unless "${lead.handledBy}" changes its status back to Not Contacted.`, "error");
+      return;
+    }
+
     const oldStatus = lead.status;
     const normOld = (oldStatus === 'created' ? 'not_contacted' : oldStatus === 'closed_successful' ? 'live' : oldStatus === 'closed_unsuccessful' ? 'lost' : oldStatus);
     if (newStatus === normOld) return;
 
-    updateLeadInState(lead.id, { status: newStatus });
+    const normNew = (newStatus === 'created' ? 'not_contacted' : newStatus === 'closed_successful' ? 'live' : newStatus === 'closed_unsuccessful' ? 'lost' : newStatus);
+    const optimisticHandledBy = normNew === 'not_contacted' ? null : (lead.handledBy || currentUser?.username || null);
+
+    updateLeadInState(lead.id, { status: newStatus, handledBy: optimisticHandledBy });
     try {
-      await fetch(`/api/leads/${lead.id}`, {
+      const res = await fetch(`/api/leads/${lead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus })
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || data.details || "Failed to update status", "error");
+        updateLeadInState(lead.id, { status: oldStatus, ...(data.handledBy !== undefined ? { handledBy: data.handledBy } : {}) });
+      } else {
+        showToast(`Status updated to ${formatStatusLabel(newStatus)}`);
+        if (data.lead) {
+          updateLeadInState(lead.id, data.lead);
+        }
+      }
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('crm-leads-updated'));
     } catch {
+      showToast("Network error while updating status", "error");
       updateLeadInState(lead.id, { status: oldStatus });
     }
   };
 
-  const handleFollowUpUpdate = async (lead: Lead, field: 'followUpDate1' | 'followUpDate2', dateStr: string) => {
-    const oldVal = lead[field];
-    const dateWithTime = dateStr ? `${dateStr}T12:00:00Z` : null;
-    const otherField = field === 'followUpDate1' ? 'followUpDate2' : 'followUpDate1';
-    const otherVal = lead[otherField];
+  const handleTestDriveUpdate = async (lead: Lead, value: string) => {
+    const isLocked = checkIsLeadLocked(lead);
+    if (isLocked) {
+      showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead.`, "error");
+      return;
+    }
 
-    const targetDate1 = field === 'followUpDate1' ? toISTDateString(dateWithTime) : toISTDateString(otherVal);
-    const targetDate2 = field === 'followUpDate2' ? toISTDateString(dateWithTime) : toISTDateString(otherVal);
+    const oldTestDrive = lead.testDrive;
+    if (oldTestDrive === value) return;
 
-    // If updated lead no longer matches selectedDate, remove from active list
-    const stillMatches = (targetDate1 === selectedDate || targetDate2 === selectedDate);
-
-    if (!stillMatches) {
-      setLeads(prev => {
-        const next = prev.filter(l => l.id !== lead.id);
-        const newTotal = Math.max(0, pagination.total - 1);
-        const newTotalPages = Math.ceil(newTotal / PAGE_SIZE);
-        setPagination(p => ({ ...p, total: newTotal, totalPages: newTotalPages }));
-
-        if (datePageCache[selectedDate]?.[page]) {
-          datePageCache[selectedDate][page].leads = next;
-          datePageCache[selectedDate][page].total = newTotal;
-          datePageCache[selectedDate][page].totalPages = newTotalPages;
-        }
-
-        // Adjust month count
-        setMonthCounts(mc => ({
-          ...mc,
-          [selectedDate]: Math.max(0, (mc[selectedDate] || 1) - 1),
-          ...(dateStr ? { [dateStr]: (mc[dateStr] || 0) + 1 } : {}),
-        }));
-
-        return next;
+    updateLeadInState(lead.id, { testDrive: value });
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ testDrive: value })
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || data.details || "Failed to update test drive", "error");
+        updateLeadInState(lead.id, { testDrive: oldTestDrive, ...(data.handledBy !== undefined ? { handledBy: data.handledBy } : {}) });
+      } else {
+        showToast(`Test drive updated to ${value}`);
+        if (data.lead) {
+          updateLeadInState(lead.id, data.lead);
+        }
+      }
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('crm-leads-updated'));
+    } catch {
+      showToast("Network error while updating test drive", "error");
+      updateLeadInState(lead.id, { testDrive: oldTestDrive });
+    }
+  };
+
+  const handleAssignedConsultantUpdate = async (lead: Lead, value: string) => {
+    const isLocked = checkIsLeadLocked(lead);
+    if (isLocked) {
+      showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead.`, "error");
+      return;
+    }
+
+    const oldConsultant = lead.assignedConsultant;
+    if (oldConsultant === value) return;
+
+    updateLeadInState(lead.id, { assignedConsultant: value });
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedConsultant: value })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || data.details || "Failed to update consultant", "error");
+        updateLeadInState(lead.id, { assignedConsultant: oldConsultant, ...(data.handledBy !== undefined ? { handledBy: data.handledBy } : {}) });
+      } else {
+        showToast(value ? `Consultant assigned: ${value}` : "Consultant unassigned");
+        if (data.lead) {
+          updateLeadInState(lead.id, data.lead);
+        }
+      }
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('crm-leads-updated'));
+    } catch {
+      showToast("Network error while updating consultant", "error");
+      updateLeadInState(lead.id, { assignedConsultant: oldConsultant });
+    }
+  };
+
+  const handleFollowUpChange = async (
+    lead: Lead,
+    isSecondInput: boolean,
+    dateStr: string,
+    currentStep: number
+  ) => {
+    if (checkIsLeadLocked(lead)) {
+      showToast(`This lead is currently handled by "${lead.handledBy}". You cannot modify this lead.`, "error");
+      return;
+    }
+    if (!dateStr && isSecondInput) return;
+
+    const prevFollowUps = getLeadFollowUps(lead);
+    const dateWithTime = dateStr ? `${dateStr}T12:00:00+05:30` : '';
+
+    let updatedFollowUps = [...prevFollowUps];
+    let newFollowUpCount = lead.followUpCount || prevFollowUps.length;
+    let optimisticPatch: Partial<Lead> = {};
+
+    if (!dateStr) {
+      // CLEAR action on existing step:
+      const remainingFollowUps = prevFollowUps
+        .filter(f => f.step !== currentStep)
+        .map((f, idx) => ({ ...f, step: idx + 1 }));
+      newFollowUpCount = remainingFollowUps.length;
+      const newF1 = newFollowUpCount > 0 ? remainingFollowUps[0].date : null;
+      const newF2 = newFollowUpCount > 1 ? remainingFollowUps[newFollowUpCount - 1].date : null;
+
+      optimisticPatch = {
+        followUps: remainingFollowUps,
+        followUpCount: newFollowUpCount,
+        followUpDate1: newF1,
+        followUpDate2: newF2,
+      };
+    } else if (isSecondInput) {
+      const targetStep = currentStep;
+      updatedFollowUps = [...prevFollowUps, { step: targetStep, date: dateWithTime }];
+      newFollowUpCount = targetStep;
+      optimisticPatch = {
+        followUps: updatedFollowUps,
+        followUpCount: newFollowUpCount,
+        followUpDate2: dateWithTime,
+        ...(!lead.followUpDate1 ? { followUpDate1: dateWithTime } : {}),
+      };
     } else {
-      updateLeadInState(lead.id, { [field]: dateWithTime });
+      if (updatedFollowUps.some(f => f.step === currentStep)) {
+        updatedFollowUps = updatedFollowUps.map(f => f.step === currentStep ? { ...f, date: dateWithTime } : f);
+      } else {
+        updatedFollowUps = [...updatedFollowUps, { step: currentStep, date: dateWithTime }];
+      }
+      optimisticPatch = {
+        followUps: updatedFollowUps,
+        followUpCount: newFollowUpCount,
+        ...(currentStep === 1 ? { followUpDate1: dateWithTime || null } : {}),
+        ...(currentStep === 2 ? { followUpDate2: dateWithTime || null } : {}),
+      };
+    }
+
+    updateLeadInState(lead.id, optimisticPatch);
+    if (timelineLead && timelineLead.id === lead.id) {
+      setTimelineLead(prev => prev ? { ...prev, ...optimisticPatch } : null);
     }
 
     try {
-      await fetch(`/api/leads/${lead.id}`, {
+      const payload: any = isSecondInput
+        ? { newFollowUpDate: dateStr, step: currentStep }
+        : { updateFollowUp: { step: currentStep, date: dateStr } };
+
+      const res = await fetch(`/api/leads/${lead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: dateStr || null })
+        body: JSON.stringify(payload),
       });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        showToast(!dateStr ? `Follow-up #${currentStep} cleared` : isSecondInput ? `Added Follow-Up #${currentStep}` : `Updated Follow-Up #${currentStep}`);
+        if (data.lead) {
+          updateLeadInState(lead.id, data.lead);
+          if (timelineLead && timelineLead.id === lead.id) {
+            setTimelineLead(data.lead);
+          }
+        }
+        fetchMonthCounts(activeMonthKey, true);
+      } else {
+        showToast(data.error || data.details || "Failed to update date", "error");
+        fetchLeadsForSelectedDate(selectedDate, page, true);
+      }
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('crm-leads-updated'));
     } catch {
+      showToast("Network error while updating date", "error");
       fetchLeadsForSelectedDate(selectedDate, page, true);
+    }
+  };
+
+  const handleFollowUpUpdate = async (lead: Lead, field: 'followUpDate1' | 'followUpDate2', dateStr: string) => {
+    const inputs = getFollowUpInputsState(lead);
+    if (field === 'followUpDate2') {
+      return handleFollowUpChange(lead, true, dateStr, inputs.step2);
+    } else {
+      return handleFollowUpChange(lead, false, dateStr, inputs.step1);
     }
   };
 
@@ -296,10 +631,12 @@ export default function CalendarPage() {
   const formattedSelectedDate = useMemo(() => {
     if (!selectedDate) return '';
     try {
-      const d = new Date(`${selectedDate}T12:00:00Z`);
-      return d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const d = new Date(`${selectedDate}T12:00:00+05:30`);
+      const ddmmyyyy = formatToDDMMYYYY(selectedDate);
+      const weekday = d.toLocaleDateString('en-IN', { weekday: 'long' });
+      return `${ddmmyyyy} (${weekday})`;
     } catch {
-      return selectedDate;
+      return formatToDDMMYYYY(selectedDate);
     }
   }, [selectedDate]);
 
@@ -478,8 +815,7 @@ export default function CalendarPage() {
             <>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {leads.map(lead => {
-                  const isF1 = lead.followUpDate1 && toISTDateString(lead.followUpDate1) === selectedDate;
-                  const isF2 = lead.followUpDate2 && toISTDateString(lead.followUpDate2) === selectedDate;
+                  const isLeadLocked = checkIsLeadLocked(lead);
                   return (
                     <div 
                       key={lead.id} 
@@ -489,7 +825,7 @@ export default function CalendarPage() {
                         alignItems: "flex-start", 
                         flexWrap: "wrap",
                         gap: "16px",
-                        background: "#fff", 
+                        background: isLeadLocked ? "rgba(241, 245, 249, 0.4)" : "#fff", 
                         padding: "20px", 
                         borderRadius: "12px",
                         border: "1px solid var(--border)",
@@ -498,22 +834,64 @@ export default function CalendarPage() {
                       }}
                     >
                       <div style={{ flex: "1 1 280px", minWidth: 0, paddingRight: "12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
-                          <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-primary)", letterSpacing: "-0.3px" }}>{lead.name}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+                          <div style={{ fontWeight: 700, fontSize: 18, color: "var(--text-primary)", letterSpacing: "-0.3px" }}>
+                            {lead.name}
+                          </div>
+                          {lead.handledBy && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                padding: "2px 8px",
+                                borderRadius: "10px",
+                                fontSize: "11px",
+                                fontWeight: 600,
+                                background: isLeadLocked ? "rgba(239, 68, 68, 0.08)" : "rgba(37, 99, 235, 0.08)",
+                                color: isLeadLocked ? "#dc2626" : "#2563eb",
+                                border: `1px solid ${isLeadLocked ? "rgba(239, 68, 68, 0.2)" : "rgba(37, 99, 235, 0.2)"}`,
+                                whiteSpace: "nowrap",
+                              }}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy} (Read only)` : `Handled by ${lead.handledBy}`}
+                            >
+                              {isLeadLocked ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 11, height: 11 }}>
+                                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                  <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 11, height: 11 }}>
+                                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                  <circle cx="12" cy="7" r="4"></circle>
+                                </svg>
+                              )}
+                              {isLeadLocked ? `Locked: ${lead.handledBy}` : `Handled by ${lead.handledBy}`}
+                            </span>
+                          )}
                           <select 
                             value={lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status} 
                             onChange={(e) => handleStatusChange(lead, e.target.value)}
-                            className={`status-select status-${(lead.status === 'not_contacted' || lead.status === 'created') ? 'not_contacted' : lead.status === 'pending' ? 'pending' : (lead.status === 'live' || lead.status === 'closed_successful') ? 'live' : 'lost'}`}
-                            style={{ padding: "4px 12px", fontSize: "12px", borderRadius: "16px", cursor: "pointer" }}
+                            disabled={isLeadLocked}
+                            title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Status: ${formatStatusLabel(lead.status)}`}
+                            className={`status-select status-${(lead.status === 'not_contacted' || lead.status === 'created') ? 'not_contacted' : lead.status === 'pending' ? 'pending' : lead.status === 'callback' ? 'callback' : (lead.status === 'live' || lead.status === 'closed_successful') ? 'live' : 'lost'}`}
+                            style={{
+                              padding: "4px 12px",
+                              fontSize: "12px",
+                              borderRadius: "16px",
+                              cursor: isLeadLocked ? "not-allowed" : "pointer",
+                              ...(isLeadLocked ? { opacity: 0.65 } : {})
+                            }}
                           >
                             <option value="not_contacted">Not Contacted</option>
                             <option value="pending">Contacted</option>
+                            <option value="callback">Callback</option>
                             <option value="live">Completed</option>
                             <option value="lost">Lost</option>
                           </select>
                         </div>
                         
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "24px", marginBottom: 20 }}>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px", marginBottom: 20, alignItems: "flex-start" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-secondary)", fontWeight: 600 }}>Phone</span>
                             <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{parsePhoneNumber(lead.phone)}</span>
@@ -530,15 +908,94 @@ export default function CalendarPage() {
                               <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{parseBranches(lead.branch).join(', ')}</span>
                             </div>
                           )}
+                          {lead.carModel && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-secondary)", fontWeight: 600 }}>Model</span>
+                              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{lead.carModel}</span>
+                            </div>
+                          )}
                           {lead.adname && (
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-secondary)", fontWeight: 600 }}>Ad Name</span>
                               <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{lead.adname}</span>
                             </div>
                           )}
+
+                          {/* Assigned Consultant Dropdown */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
+                              Consultant
+                            </span>
+                            <select
+                              className="status-select"
+                              style={{
+                                padding: "3px 8px",
+                                fontSize: "12px",
+                                borderRadius: "6px",
+                                maxWidth: "180px",
+                                ...(isLeadLocked ? { opacity: 0.65, cursor: "not-allowed" } : {})
+                              }}
+                              value={lead.assignedConsultant || ""}
+                              onChange={(e) => handleAssignedConsultantUpdate(lead, e.target.value)}
+                              disabled={isLeadLocked}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                            >
+                              <option value="">Unassigned</option>
+                              {getConsultantGroupsForLead(lead).map((group) => (
+                                <optgroup key={group.branch} label={group.branch}>
+                                  {group.consultants.map((c) => (
+                                    <option key={`${group.branch}-${c.id}-${c.name}`} value={c.name}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Test Drive State Dropdown */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-secondary)", fontWeight: 600 }}>
+                              Test Drive
+                            </span>
+                            <select
+                              className={`status-select ${
+                                (lead.testDrive === "Scheduled" || lead.testDrive === "Yes")
+                                  ? "td-scheduled"
+                                  : lead.testDrive === "Completed"
+                                  ? "td-completed"
+                                  : lead.testDrive === "Cancelled"
+                                  ? "td-cancelled"
+                                  : "td-not_scheduled"
+                              }`}
+                              style={{
+                                padding: "3px 10px",
+                                fontSize: "12px",
+                                borderRadius: "16px",
+                                cursor: isLeadLocked ? "not-allowed" : "pointer",
+                                ...(isLeadLocked ? { opacity: 0.65 } : {})
+                              }}
+                              value={
+                                lead.testDrive === "Yes"
+                                  ? "Scheduled"
+                                  : lead.testDrive === "No"
+                                  ? "Not Scheduled"
+                                  : lead.testDrive || "Not Scheduled"
+                              }
+                              onChange={(e) => handleTestDriveUpdate(lead, e.target.value)}
+                              disabled={isLeadLocked}
+                              title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                            >
+                              <option value="Not Scheduled">Not Scheduled</option>
+                              <option value="Scheduled">Scheduled</option>
+                              <option value="Completed">Completed</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                          </div>
+
                           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                             <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px", color: "var(--text-secondary)", fontWeight: 600 }}>Created</span>
-                            <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{new Date(lead.createdAt).toLocaleDateString()}</span>
+                            <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>{formatToDDMMYYYY(lead.createdAt)}</span>
                           </div>
                         </div>
                         
@@ -549,32 +1006,123 @@ export default function CalendarPage() {
                         )}
                       </div>
                       
-                      <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "flex-start", flex: "1 1 220px", minWidth: 0, width: "100%", maxWidth: "100%" }}>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          {isF1 && <span style={{ background: "var(--primary-light)", color: "#fff", padding: "4px 12px", borderRadius: "20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>1st Follow Up</span>}
-                          {isF2 && <span style={{ background: "var(--primary)", color: "#fff", padding: "4px 12px", borderRadius: "20px", fontSize: 11, fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>2nd Follow Up</span>}
-                        </div>
-                        
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", marginTop: "auto" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(0,0,0,0.02)", padding: "8px 12px", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)", transition: "all 0.2s ease" }}>
-                            <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", width: "16px" }}>F1</span>
-                            <input 
-                              type="date" 
-                              value={toISTDateString(lead.followUpDate1)} 
-                              onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate1', e.target.value)}
-                              style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", outline: "none", flex: 1, color: "var(--text-primary)", fontWeight: 500, fontFamily: "inherit" }}
-                            />
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(0,0,0,0.02)", padding: "8px 12px", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)", transition: "all 0.2s ease" }}>
-                            <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", width: "16px" }}>F2</span>
-                            <input 
-                              type="date" 
-                              value={toISTDateString(lead.followUpDate2)} 
-                              onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate2', e.target.value)}
-                              style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", outline: "none", flex: 1, color: "var(--text-primary)", fontWeight: 500, fontFamily: "inherit" }}
-                            />
-                          </div>
-                        </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 16, alignItems: "flex-start", flex: "1 1 240px", minWidth: 0, width: "100%", maxWidth: "100%" }}>
+                        {(() => {
+                          const totalCount = getLeadFollowUpCount(lead);
+                          const fu = getFollowUpInputsState(lead);
+                          const activeStep = getMatchingStepForDate(lead, selectedDate);
+                          return (
+                            <>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", width: "100%", justifyContent: "space-between" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                  <span style={{ 
+                                    background: "rgba(37, 99, 235, 0.1)", 
+                                    color: "var(--primary, #2563eb)", 
+                                    padding: "3px 10px", 
+                                    borderRadius: "14px", 
+                                    fontSize: 11, 
+                                    fontWeight: 700, 
+                                    letterSpacing: "0.3px",
+                                    border: "1px solid rgba(37, 99, 235, 0.2)"
+                                  }}>
+                                    {totalCount} Follow-Up{totalCount === 1 ? '' : 's'}
+                                  </span>
+                                  {activeStep > 0 && (
+                                    <span style={{ 
+                                      background: "var(--primary, #2563eb)", 
+                                      color: "#fff", 
+                                      padding: "3px 8px", 
+                                      borderRadius: "14px", 
+                                      fontSize: 10, 
+                                      fontWeight: 700, 
+                                      letterSpacing: "0.3px" 
+                                    }}>
+                                      Step #{activeStep}
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setTimelineLead(lead)}
+                                  className="btn btn-ghost"
+                                  style={{
+                                    fontSize: 12,
+                                    padding: "3px 10px",
+                                    height: "auto",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 5,
+                                    color: "var(--primary, #2563eb)",
+                                    fontWeight: 600,
+                                    borderRadius: 6,
+                                    borderColor: "rgba(37, 99, 235, 0.2)"
+                                  }}
+                                  title="View complete follow-up timeline"
+                                >
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <polyline points="12 6 12 12 16 14" />
+                                  </svg>
+                                  View Timeline
+                                </button>
+                              </div>
+
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", marginTop: "auto" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(0,0,0,0.02)", padding: "8px 12px", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)", transition: "all 0.2s ease", ...(isLeadLocked ? { opacity: 0.65 } : {}) }}>
+                                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", minWidth: "18px" }}>{fu.label1}</span>
+                                  <input 
+                                    type="date" 
+                                    value={fu.val1} 
+                                    onChange={(e) => handleFollowUpChange(lead, false, e.target.value, fu.step1)}
+                                    disabled={isLeadLocked}
+                                    title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                                    style={{ border: "none", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", fontSize: "13px", outline: "none", flex: 1, color: "var(--text-primary)", fontWeight: 500, fontFamily: "inherit" }}
+                                  />
+                                  {fu.val1 && !isLeadLocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleFollowUpChange(lead, false, "", fu.step1)}
+                                      title={`Clear follow-up ${fu.label1}`}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        color: "var(--text-secondary)",
+                                        cursor: "pointer",
+                                        padding: "0 4px",
+                                        fontSize: "16px",
+                                        lineHeight: 1,
+                                        fontWeight: "bold",
+                                        opacity: 0.7,
+                                        transition: "opacity 0.15s, color 0.15s"
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.color = "#ef4444";
+                                        e.currentTarget.style.opacity = "1";
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.color = "var(--text-secondary)";
+                                        e.currentTarget.style.opacity = "0.7";
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(0,0,0,0.02)", padding: "8px 12px", borderRadius: "8px", border: "1px solid rgba(0,0,0,0.05)", transition: "all 0.2s ease", ...(isLeadLocked ? { opacity: 0.65 } : {}) }}>
+                                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-secondary)", minWidth: "18px" }}>{fu.label2}</span>
+                                  <input 
+                                    type="date" 
+                                    value={fu.val2} 
+                                    onChange={(e) => handleFollowUpChange(lead, true, e.target.value, fu.step2)}
+                                    disabled={isLeadLocked}
+                                    title={isLeadLocked ? `Locked by ${lead.handledBy}` : undefined}
+                                    style={{ border: "none", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", fontSize: "13px", outline: "none", flex: 1, color: "var(--text-primary)", fontWeight: 500, fontFamily: "inherit" }}
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -621,6 +1169,145 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      {/* Follow-Up Timeline Modal */}
+      {timelineLead && (
+        <div className="modal-overlay" onClick={() => setTimelineLead(null)} style={{ zIndex: 1000 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 20 }}>Follow-Up Timeline</h2>
+                <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>
+                  {timelineLead.name} • {parsePhoneNumber(timelineLead.phone)}
+                </div>
+              </div>
+              <span style={{
+                padding: "4px 10px",
+                borderRadius: "16px",
+                fontSize: 12,
+                fontWeight: 700,
+                background: "var(--primary-light, #3b82f6)",
+                color: "#fff"
+              }}>
+                {getLeadFollowUpCount(timelineLead)} Total Follow-Up{getLeadFollowUpCount(timelineLead) === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            {/* Basic lead info */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "10px 14px", background: "rgba(0,0,0,0.02)", borderRadius: 8, marginBottom: 20, fontSize: 12 }}>
+              {timelineLead.carModel && <div><strong>Model:</strong> {timelineLead.carModel}</div>}
+              {timelineLead.branch && <div><strong>Branch:</strong> {timelineLead.branch}</div>}
+              <div><strong>Status:</strong> {formatStatusLabel(timelineLead.status)}</div>
+              {timelineLead.handledBy && <div><strong>Handled By:</strong> {timelineLead.handledBy}</div>}
+              <div><strong>Consultant:</strong> {timelineLead.assignedConsultant || "Unassigned"}</div>
+              <div><strong>Test Drive:</strong> {timelineLead.testDrive || "Not Scheduled"}</div>
+              <div><strong>Created:</strong> {formatToDDMMYYYY(timelineLead.createdAt)}</div>
+            </div>
+
+            {/* Timeline items */}
+            {(() => {
+              const followUps = getLeadFollowUps(timelineLead);
+              if (followUps.length === 0) {
+                return (
+                  <div style={{ textAlign: "center", padding: "24px 0", color: "var(--text-secondary)", fontSize: 13 }}>
+                    No follow-ups recorded yet for this lead.
+                  </div>
+                );
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16, position: "relative", paddingLeft: 22, borderLeft: "2px solid var(--border)", marginLeft: 6 }}>
+                  {followUps.map((fu, idx) => {
+                    const isLatest = idx === followUps.length - 1;
+                    const formattedDate = formatToDDMMYYYY(fu.date);
+                    const isLocked = checkIsLeadLocked(timelineLead);
+                    return (
+                      <div key={fu.id || idx} style={{ position: "relative" }}>
+                        {/* Node dot */}
+                        <div style={{
+                          position: "absolute",
+                          left: -29,
+                          top: 4,
+                          width: 12,
+                          height: 12,
+                          borderRadius: "50%",
+                          background: isLatest ? "var(--primary, #2563eb)" : "var(--border, #cbd5e1)",
+                          border: "2px solid #fff",
+                          boxShadow: isLatest ? "0 0 0 2px rgba(37, 99, 235, 0.3)" : "none"
+                        }} />
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-primary)" }}>
+                            Follow-Up #{fu.step || idx + 1}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{
+                              fontWeight: 700,
+                              fontSize: 13,
+                              fontFamily: "monospace",
+                              background: "rgba(37, 99, 235, 0.08)",
+                              color: "var(--primary, #2563eb)",
+                              padding: "2px 8px",
+                              borderRadius: 6
+                            }}>
+                              {formattedDate}
+                            </div>
+                            {!isLocked && (
+                              <button
+                                type="button"
+                                onClick={() => handleFollowUpChange(timelineLead, false, "", fu.step || idx + 1)}
+                                title={`Delete follow-up #${fu.step || idx + 1}`}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--text-secondary)",
+                                  cursor: "pointer",
+                                  padding: "2px 6px",
+                                  fontSize: "16px",
+                                  lineHeight: 1,
+                                  fontWeight: "bold",
+                                  borderRadius: 4,
+                                  opacity: 0.7,
+                                  transition: "all 0.15s ease"
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = "#ef4444";
+                                  e.currentTarget.style.opacity = "1";
+                                  e.currentTarget.style.background = "rgba(239, 68, 68, 0.08)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = "var(--text-secondary)";
+                                  e.currentTarget.style.opacity = "0.7";
+                                  e.currentTarget.style.background = "none";
+                                }}
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {fu.createdAt && (
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                            Logged: {formatToDDMMYYYY(fu.createdAt)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {timelineLead.remark && (
+              <div style={{ marginTop: 20, padding: "10px 14px", background: "rgba(0,0,0,0.02)", borderLeft: "3px solid var(--primary-light)", borderRadius: "0 8px 8px 0", fontSize: 13, color: "var(--text-secondary)" }}>
+                <strong>Remark:</strong> {timelineLead.remark}
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 24, display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn btn-primary" onClick={() => setTimelineLead(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Selected Lead Modal */}
       {selectedLead && (
         <div className="modal-overlay" onClick={() => setSelectedLead(null)}>
@@ -629,10 +1316,15 @@ export default function CalendarPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
               <div><strong>Name:</strong> {selectedLead.name}</div>
               <div><strong>Phone:</strong> {parsePhoneNumber(selectedLead.phone)}</div>
-              <div><strong>Status:</strong> {selectedLead.status}</div>
+              <div><strong>Status:</strong> {formatStatusLabel(selectedLead.status)}</div>
+              <div><strong>Handled By:</strong> {selectedLead.handledBy || "Not handled"}</div>
+              <div><strong>Assigned Consultant:</strong> {selectedLead.assignedConsultant || "Unassigned"}</div>
+              <div><strong>Test Drive:</strong> {selectedLead.testDrive || "Not Scheduled"}</div>
+              {selectedLead.carModel && <div><strong>Model:</strong> {selectedLead.carModel}</div>}
+              {selectedLead.branch && <div><strong>Branch:</strong> {selectedLead.branch}</div>}
               {selectedLead.remark && <div><strong>Remark:</strong> {selectedLead.remark}</div>}
-              {selectedLead.followUpDate1 && <div><strong>Follow Up 1:</strong> {new Date(selectedLead.followUpDate1).toLocaleDateString()}</div>}
-              {selectedLead.followUpDate2 && <div><strong>Follow Up 2:</strong> {new Date(selectedLead.followUpDate2).toLocaleDateString()}</div>}
+              {selectedLead.followUpDate1 && <div><strong>Follow Up 1:</strong> {formatToDDMMYYYY(selectedLead.followUpDate1)}</div>}
+              {selectedLead.followUpDate2 && <div><strong>Follow Up 2:</strong> {formatToDDMMYYYY(selectedLead.followUpDate2)}</div>}
             </div>
             <div className="modal-actions" style={{ marginTop: 24 }}>
               <button className="btn btn-primary" onClick={() => setSelectedLead(null)}>Close</button>
@@ -640,6 +1332,9 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
+
+      {/* Toast Notification */}
+      {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
     </>
   );
 }

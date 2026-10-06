@@ -135,7 +135,7 @@ export async function checkAndNotify() {
         { followUpDate2: { lte: endOfToday } },
       ],
     };
-    const unclosedWhere = { status: { in: ['not_contacted', 'pending', 'created'] } };
+    const unclosedWhere = { status: { in: ['not_contacted', 'pending', 'created', 'callback'] } };
 
     const [pendingFollowUpsCount, firstPendingLead, unclosedCount, firstUnclosedLead] = await Promise.all([
       prisma.lead.count({ where: followUpWhere }),
@@ -269,7 +269,7 @@ export async function processGradualNotifications() {
         { followUpDate2: { lte: endOfToday } },
       ],
     };
-    const unclosedWhere = { status: { in: ['not_contacted', 'pending', 'created'] } };
+    const unclosedWhere = { status: { in: ['not_contacted', 'pending', 'created', 'callback'] } };
 
     const [pendingFollowUpsCount, firstPendingLead, unclosedCount, firstUnclosedLead] = await Promise.all([
       prisma.lead.count({ where: followUpWhere }),

@@ -83,11 +83,11 @@ export function parseBranches(branchStr: string | null | undefined): string[] {
   return Array.from(new Set(parsed));
 }
 
-export function parseSheetStatus(rawStatusStr: string | null | undefined): 'not_contacted' | 'pending' | 'live' | 'lost' {
-  if (!rawStatusStr) return 'not_contacted';
+export function parseSheetStatus(rawStatusStr: string | null | undefined): 'not_contacted' | 'pending' | 'callback' | 'live' | 'lost' | null {
+  if (!rawStatusStr) return null;
 
   const norm = String(rawStatusStr).toLowerCase().replace(/[\s_]+/g, '').trim();
-  if (!norm) return 'not_contacted';
+  if (!norm) return null;
 
   // 1. created / CREATED / not contacted -> not contacted ('not_contacted' in DB)
   if (
@@ -98,7 +98,16 @@ export function parseSheetStatus(rawStatusStr: string | null | undefined): 'not_
     return 'not_contacted';
   }
 
-  // 2. completed / COMPLETED -> completed ('live' in DB)
+  // 2. callback / CALLBACK / cb -> callback ('callback' in DB)
+  if (
+    norm.includes('callback') ||
+    norm === 'cb' ||
+    norm.includes('callagain')
+  ) {
+    return 'callback';
+  }
+
+  // 3. completed / COMPLETED -> completed ('live' in DB)
   if (
     norm === 'completed' ||
     norm === 'won' ||
@@ -110,7 +119,7 @@ export function parseSheetStatus(rawStatusStr: string | null | undefined): 'not_
     return 'live';
   }
 
-  // 3. lost lead / LOST LEAD / lost -> lost ('lost' in DB)
+  // 4. lost lead / LOST LEAD / lost -> lost ('lost' in DB)
   if (
     norm.includes('lost') ||
     norm === 'dead' ||
@@ -122,7 +131,7 @@ export function parseSheetStatus(rawStatusStr: string | null | undefined): 'not_
     return 'lost';
   }
 
-  // 4. live lead / LIVE LEAD / contacted -> contacted ('pending' in DB)
+  // 5. live lead / LIVE LEAD / contacted -> contacted ('pending' in DB)
   if (
     norm.includes('live') ||
     norm.includes('contacted') ||
@@ -134,6 +143,18 @@ export function parseSheetStatus(rawStatusStr: string | null | undefined): 'not_
     return 'pending';
   }
 
-  return 'not_contacted';
+  return null;
 }
+
+export function formatStatusLabel(st: string | null | undefined): string {
+  if (!st) return 'Not Contacted';
+  const lower = st.toLowerCase().trim();
+  if (lower === 'not_contacted' || lower === 'created') return 'Not Contacted';
+  if (lower === 'pending') return 'Contacted';
+  if (lower === 'callback') return 'Callback';
+  if (lower === 'live' || lower === 'closed_successful') return 'Completed';
+  if (lower === 'lost' || lower === 'closed_unsuccessful') return 'Lost';
+  return st.replace(/_/g, ' ');
+}
+
 

@@ -35,6 +35,7 @@ export interface LeadDiffPayload {
   assignedConsultant?: string | null;
   testDrive?: string | null;
   branch?: string | null;
+  carModel?: string | null;
   [key: string]: unknown;
 }
 
@@ -188,6 +189,21 @@ export async function logLeadDiff({
         action: 'BRANCH_CHANGE',
         oldValue: oldBranch || 'Unassigned',
         newValue: newBranch || 'Unassigned',
+      });
+    }
+  }
+
+  // Model Change
+  if (updates.carModel !== undefined) {
+    const oldModel = String(previousLead.carModel || '').trim();
+    const newModel = String(updates.carModel || '').trim();
+    if (oldModel !== newModel) {
+      activities.push({
+        leadId,
+        user,
+        action: 'MODEL_CHANGE',
+        oldValue: oldModel || 'None',
+        newValue: newModel || 'None',
       });
     }
   }

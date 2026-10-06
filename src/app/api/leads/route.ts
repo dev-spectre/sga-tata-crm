@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
     const skip = (page - 1) * limit;
 
-    const validFields = ['name', 'city', 'adname', 'branch', 'status', 'phone', 'followUpDate1', 'followUpDate2'];
+    const validFields = ['name', 'city', 'adname', 'carModel', 'branch', 'status', 'phone', 'followUpDate1', 'followUpDate2'];
     if (!validFields.includes(secondaryField)) {
       secondaryField = 'name';
     }
@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
           { phone: { contains: token, mode: 'insensitive' } },
           { city: { contains: token, mode: 'insensitive' } },
           { adname: { contains: token, mode: 'insensitive' } },
+          { carModel: { contains: token, mode: 'insensitive' } },
           { branch: { contains: token, mode: 'insensitive' } },
           { remark: { contains: token, mode: 'insensitive' } },
         ];
@@ -207,16 +208,32 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const carModel = searchParams.get('carModel') || searchParams.get('model') || '';
+    if (carModel) {
+      const modelTokens = carModel.split(',').map(m => m.trim()).filter(Boolean);
+      if (modelTokens.length > 0) {
+        statsWhere.AND = [
+          ...(statsWhere.AND || []),
+          { OR: modelTokens.map(m => ({ carModel: { contains: m, mode: 'insensitive' } })) }
+        ];
+      }
+    }
+
     if (followUpStartDate || followUpEndDate) {
       const f1Cond: any = {};
       const f2Cond: any = {};
+      const fFollowUpCond: any = {};
       if (followUpStartDate) {
-        f1Cond.gte = new Date(`${followUpStartDate}T00:00:00+05:30`);
-        f2Cond.gte = new Date(`${followUpStartDate}T00:00:00+05:30`);
+        const start = new Date(`${followUpStartDate}T00:00:00+05:30`);
+        f1Cond.gte = start;
+        f2Cond.gte = start;
+        fFollowUpCond.gte = start;
       }
       if (followUpEndDate) {
-        f1Cond.lte = new Date(`${followUpEndDate}T23:59:59.999+05:30`);
-        f2Cond.lte = new Date(`${followUpEndDate}T23:59:59.999+05:30`);
+        const end = new Date(`${followUpEndDate}T23:59:59.999+05:30`);
+        f1Cond.lte = end;
+        f2Cond.lte = end;
+        fFollowUpCond.lte = end;
       }
       statsWhere.AND = [
         ...(statsWhere.AND || []),
@@ -224,6 +241,7 @@ export async function GET(request: NextRequest) {
           OR: [
             { followUpDate1: f1Cond },
             { followUpDate2: f2Cond },
+            { followUps: { some: { date: fFollowUpCond } } },
           ]
         }
       ];
@@ -234,6 +252,8 @@ export async function GET(request: NextRequest) {
           OR: [
             { followUpDate1: { not: null } },
             { followUpDate2: { not: null } },
+            { followUpCount: { gt: 0 } },
+            { followUps: { some: {} } },
           ]
         }
       ];
@@ -291,6 +311,8 @@ export async function GET(request: NextRequest) {
             dbStatuses.add('created');
           } else if (st === 'pending') {
             dbStatuses.add('pending');
+          } else if (st === 'callback') {
+            dbStatuses.add('callback');
           } else if (st === 'live' || st === 'closed_successful') {
             dbStatuses.add('live');
             dbStatuses.add('closed_successful');
@@ -383,6 +405,7 @@ export async function GET(request: NextRequest) {
       OR: [
         { followUpDate1: { lte: todayEndOfDay, not: null } },
         { followUpDate2: { lte: todayEndOfDay, not: null } },
+        { followUps: { some: { date: { lte: todayEndOfDay } } } },
       ],
     };
 
@@ -413,7 +436,7 @@ export async function GET(request: NextRequest) {
     }
     
     const skipStats = searchParams.get('skipStats') === 'true' || searchParams.get('skipStats') === '1';
-    const skipActivities = searchParams.get('skipActivities') === 'true' || searchParams.get('skipActivities') === '1' || isCalendar;
+    const skipActivities = searchParams.get('skipActivities') === 'true' || searchParams.get('skipActivities') === '1';
 
     const leadSelect = isCalendar ? {
       id: true,
@@ -421,11 +444,23 @@ export async function GET(request: NextRequest) {
       phone: true,
       city: true,
       adname: true,
+      carModel: true,
       branch: true,
+      assignedConsultant: true,
+      testDrive: true,
       followUpDate1: true,
       followUpDate2: true,
+      followUpCount: true,
+      followUps: {
+        select: { id: true, step: true, date: true, createdAt: true },
+        orderBy: { step: 'asc' as const },
+      },
       remark: true,
       status: true,
+      uploadedById: true,
+      uploadedBy: {
+        select: { id: true, username: true },
+      },
       createdAt: true,
       updatedAt: true,
     } : {
@@ -434,15 +469,22 @@ export async function GET(request: NextRequest) {
       phone: true,
       city: true,
       adname: true,
+      carModel: true,
       branch: true,
       followUpDate1: true,
       followUpDate2: true,
+      followUpCount: true,
+      followUps: {
+        select: { id: true, step: true, date: true, createdAt: true },
+        orderBy: { step: 'asc' as const },
+      },
       remark: true,
       status: true,
       testDrive: true,
       assignedConsultant: true,
       platform: true,
       source: true,
+      isInvalidPhone: true,
       uploadedById: true,
       uploadedBy: {
         select: { id: true, username: true }
@@ -458,6 +500,7 @@ export async function GET(request: NextRequest) {
     let totalLeads = 0;
     let notContactedLeads = 0;
     let pendingLeads = 0;
+    let callbackLeads = 0;
     let liveLeads = 0;
     let lostLeads = 0;
     let maxUpdatedAt: string | null = null;
@@ -472,28 +515,26 @@ export async function GET(request: NextRequest) {
 
     const includeTotal = searchParams.get('includeTotal') === 'true' || Boolean(followUpDate || followUpStartDate) || !skipStats;
 
+    const findArgs: any = {
+      where,
+      orderBy,
+      select: leadSelect,
+    };
+    if (!isExport) {
+      findArgs.skip = skip;
+      findArgs.take = limit;
+    }
+
     if (skipStats) {
-      if (includeTotal) {
+      if (includeTotal || isExport) {
         const [dbLeads, dbTotal] = await Promise.all([
-          prisma.lead.findMany({
-            where,
-            orderBy,
-            skip,
-            take: limit,
-            select: leadSelect,
-          }),
+          prisma.lead.findMany(findArgs),
           prisma.lead.count({ where }),
         ]);
         leads = dbLeads;
         total = dbTotal;
       } else {
-        leads = await prisma.lead.findMany({
-          where,
-          orderBy,
-          skip,
-          take: limit,
-          select: leadSelect,
-        });
+        leads = await prisma.lead.findMany(findArgs);
       }
     } else {
       const [
@@ -507,13 +548,7 @@ export async function GET(request: NextRequest) {
         allCount,
         priorityCount,
       ] = await Promise.all([
-        prisma.lead.findMany({
-          where,
-          orderBy,
-          skip,
-          take: limit,
-          select: leadSelect,
-        }),
+        prisma.lead.findMany(findArgs),
         prisma.lead.count({ where }),
         prisma.lead.groupBy({
           where: status || category ? where : statsWhere,
@@ -600,6 +635,8 @@ export async function GET(request: NextRequest) {
           notContactedLeads += count;
         } else if (group.status === 'pending') {
           pendingLeads += count;
+        } else if (group.status === 'callback') {
+          callbackLeads += count;
         } else if (['live', 'closed_successful'].includes(group.status)) {
           liveLeads += count;
         } else if (['lost', 'closed_unsuccessful'].includes(group.status)) {
@@ -619,8 +656,6 @@ export async function GET(request: NextRequest) {
         } else if (activeBranchSet.has(normBranch)) {
           const canonical = activeBranchLookup.get(normBranch);
           if (canonical) lead.branch = canonical;
-        } else {
-          lead.branch = '';
         }
       }
     }
@@ -683,15 +718,16 @@ export async function GET(request: NextRequest) {
       allowExternalUpload: Boolean(currentUser?.allowExternalUpload || currentUser?.role === 'ADMIN' || currentUser?.role === 'SUPERADMIN' || currentUser?.isSuperAdmin),
 
       pagination: {
-        page,
-        limit,
-        total,
-        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+        page: isExport ? 1 : page,
+        limit: isExport ? leads.length : limit,
+        total: isExport ? leads.length : total,
+        totalPages: isExport ? 1 : (total > 0 ? Math.ceil(total / limit) : 0),
       },
       stats: skipStats ? null : {
         total: totalLeads,
         notContacted: notContactedLeads,
         pending: pendingLeads,
+        callback: callbackLeads,
         live: liveLeads,
         lost: lostLeads,
         open: pendingLeads,

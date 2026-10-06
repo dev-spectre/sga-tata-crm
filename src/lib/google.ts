@@ -703,6 +703,7 @@ export async function findAndWriteToSheetRow(
         let formatted = u.value;
         if (val === 'not_contacted' || val === 'created') formatted = 'Not Contacted';
         else if (val === 'pending') formatted = 'Contacted';
+        else if (val === 'callback') formatted = 'Callback';
         else if (val === 'live' || val === 'closed_successful') formatted = 'Completed';
         else if (val === 'lost' || val === 'closed_unsuccessful') formatted = 'Lost';
         return { col: u.col, value: formatted };

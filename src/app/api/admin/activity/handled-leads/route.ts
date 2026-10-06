@@ -99,6 +99,8 @@ export async function GET(request: NextRequest) {
             dbStatuses.add('created');
           } else if (st === 'pending') {
             dbStatuses.add('pending');
+          } else if (st === 'callback') {
+            dbStatuses.add('callback');
           } else if (st === 'live' || st === 'closed_successful') {
             dbStatuses.add('live');
             dbStatuses.add('closed_successful');

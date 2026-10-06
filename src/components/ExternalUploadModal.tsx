@@ -23,6 +23,7 @@ const CRM_FIELDS = [
   { key: "assignedConsultant", label: "Assigned Consultant", required: false, icon: "🧑‍💼", hints: ["consultant", "executive", "advisor", "rep", "sales rep", "assigned"] },
   { key: "status", label: "Lead Status", required: false, icon: "📊", hints: ["status", "stage", "lead status", "disposition"] },
   { key: "adname", label: "Campaign / Ad Name", required: false, icon: "📢", hints: ["ad", "campaign", "ad name", "adset", "creative", "utm"] },
+  { key: "carModel", label: "Car Model", required: false, icon: "🚘", hints: ["model", "car model", "vehicle", "car", "model name", "variant"] },
   { key: "platform", label: "Platform / Source", required: false, icon: "🌐", hints: ["platform", "source", "channel", "publisher", "medium"] },
   { key: "testDrive", label: "Test Drive", required: false, icon: "🚗", hints: ["test drive", "td", "testdrive", "demo"] },
   { key: "remark", label: "Remark / Notes", required: false, icon: "📝", hints: ["remark", "notes", "comment", "feedback", "description"] },
@@ -318,7 +319,7 @@ export function ExternalUploadModal({ isOpen, onClose, onSuccess }: ExternalUplo
 
     try {
       const selectedPlatform = defaultPlatform === "custom" ? customPlatform.trim() : defaultPlatform;
-      let payload: any = { mapping, defaultPlatform: selectedPlatform || "Unknown" };
+      const payload: any = { mapping, defaultPlatform: selectedPlatform || "Unknown" };
 
       if (sourceType === "file") {
         payload.rows = allParsedRows;

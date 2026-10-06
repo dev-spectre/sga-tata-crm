@@ -12,6 +12,7 @@ interface ColumnMapping {
   phone: number;
   city?: number;
   adname?: number;
+  carModel?: number;
   branch?: number;
   followUpDate1?: number;
   followUpDate2?: number;
@@ -31,6 +32,7 @@ const DEFAULT_MAPPING: ColumnMapping = {
   remark: 4,
   status: 5,
   adname: 6,
+  carModel: -1,
   branch: -1,
   followUpDate1: 8,
   followUpDate2: 9,
@@ -262,6 +264,7 @@ export async function performSheetSync() {
     phone: true,
     city: true,
     adname: true,
+    carModel: true,
     branch: true,
     followUpDate1: true,
     followUpDate2: true,
@@ -370,10 +373,12 @@ export async function performSheetSync() {
     }
     
     const rawAdname = mapping.adname !== undefined && mapping.adname >= 0 ? (row[mapping.adname] || '').toString() : '';
+    const rawCarModel = mapping.carModel !== undefined && mapping.carModel >= 0 ? (row[mapping.carModel] || '').toString() : '';
     const rawBranch = mapping.branch !== undefined && mapping.branch >= 0 ? (row[mapping.branch] || '').toString() : '';
     const rawFollowUpDate1 = mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0 ? (row[mapping.followUpDate1] || '').toString() : '';
     const rawFollowUpDate2 = mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0 ? (row[mapping.followUpDate2] || '').toString() : '';
     const adname = sanitizeField(rawAdname);
+    const carModel = sanitizeField(rawCarModel);
     const sanitizedBranch = sanitizeField(rawBranch);
     const branch = (sanitizedBranch ? activeBranchLookup.get(sanitizedBranch.toLowerCase().trim()) : '') || '';
 
@@ -479,6 +484,9 @@ export async function performSheetSync() {
       if (existing.adname !== adname) {
         updateData.adname = adname;
       }
+      if (carModel && existing.carModel !== carModel) {
+        updateData.carModel = carModel;
+      }
       if (existing.platform !== platform) {
         updateData.platform = platform;
       }
@@ -517,9 +525,15 @@ export async function performSheetSync() {
       }
 
       // Status: update if mapped and sheet has value
-      if (mapping.status !== undefined && mapping.status >= 0) {
-        if (status && existing.status !== status) {
-          updateData.status = status;
+      if (mapping.status !== undefined && mapping.status >= 0 && status !== null) {
+        const isCrmActive = existing.status && existing.status !== 'not_contacted' && existing.status !== 'created';
+        const isSheetUncontacted = status === 'not_contacted';
+
+        // Never regress an actively handled CRM lead back to not_contacted from Google Sheet
+        if (!isCrmActive || !isSheetUncontacted) {
+          if (existing.status !== status) {
+            updateData.status = status;
+          }
         }
       }
 
@@ -571,13 +585,17 @@ export async function performSheetSync() {
           const normExistingStatus = (existing.status === 'created' ? 'not_contacted' : existing.status === 'closed_successful' ? 'live' : existing.status === 'closed_unsuccessful' ? 'lost' : existing.status) || 'not_contacted';
           let formattedDbStatus = 'Not Contacted';
           if (normExistingStatus === 'pending') formattedDbStatus = 'Contacted';
+          else if (normExistingStatus === 'callback') formattedDbStatus = 'Callback';
           else if (normExistingStatus === 'live') formattedDbStatus = 'Completed';
           else if (normExistingStatus === 'lost') formattedDbStatus = 'Lost';
 
           const rawSheetStatusStr = (row[mapping.status] || '').toString().trim();
           const normSheetStatus = parseSheetStatus(rawSheetStatusStr.toLowerCase());
 
-          if (rawSheetStatusStr && normSheetStatus !== normExistingStatus) {
+          if (
+            (rawSheetStatusStr && normSheetStatus !== normExistingStatus) ||
+            (!rawSheetStatusStr && normExistingStatus !== 'not_contacted')
+          ) {
             corrections.push({ col: mapping.status, value: formattedDbStatus });
           }
         }
@@ -638,12 +656,13 @@ export async function performSheetSync() {
         phone,
         city,
         adname,
+        carModel,
         branch: assignedBranch,
         followUpDate1,
         followUpDate2,
         createdAt,
         remark,
-        status,
+        status: status || 'not_contacted',
         platform,
         assignedConsultant: null,
         sheetRow: rowNumber,

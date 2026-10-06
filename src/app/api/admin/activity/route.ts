@@ -164,6 +164,7 @@ export async function GET() {
 
       let notContacted = 0;
       let pending = 0;
+      let callback = 0;
       let live = 0;
       let lost = 0;
       let testDriveYes = 0;
@@ -173,6 +174,7 @@ export async function GET() {
         const s = l.status;
         if (s === 'not_contacted' || s === 'created') notContacted++;
         else if (s === 'pending') pending++;
+        else if (s === 'callback') callback++;
         else if (s === 'live' || s === 'closed_successful') live++;
         else if (s === 'lost' || s === 'closed_unsuccessful') lost++;
 
@@ -207,6 +209,7 @@ export async function GET() {
         total: uHandledLeads.length,
         notContacted,
         pending,
+        callback,
         live,
         lost,
         testDriveYes,

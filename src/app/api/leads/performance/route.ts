@@ -30,6 +30,7 @@ export async function GET() {
       total: number;
       notContacted: number;
       pending: number;
+      callback: number;
       live: number;
       lost: number;
       testDriveYes: number;
@@ -45,6 +46,7 @@ export async function GET() {
         total: 0,
         notContacted: 0,
         pending: 0,
+        callback: 0,
         live: 0,
         lost: 0,
         testDriveYes: 0,
@@ -84,6 +86,8 @@ export async function GET() {
           stats.notContacted += splitCount;
         } else if (status === 'pending') {
           stats.pending += splitCount;
+        } else if (status === 'callback') {
+          stats.callback += splitCount;
         } else if (status === 'live' || status === 'closed_successful') {
           stats.live += splitCount;
         } else if (status === 'lost' || status === 'closed_unsuccessful') {
@@ -106,6 +110,7 @@ export async function GET() {
         total: Math.round(s.total),
         notContacted: Math.round(s.notContacted),
         pending: Math.round(s.pending),
+        callback: Math.round(s.callback),
         live: Math.round(s.live),
         lost: Math.round(s.lost),
         testDriveYes: Math.round(s.testDriveYes),

@@ -326,7 +326,33 @@ export async function resolveLocationTiered(
   if (!options?.skipCache && searchKey) {
     try {
       await ensureLocationCacheLoaded();
-      const cached = getCachedLocationFromMemory(searchKey);
+      let cached = getCachedLocationFromMemory(searchKey);
+
+      if (!cached) {
+        const row = await prisma.locationCache.findUnique({
+          where: { searchTerm: searchKey },
+        });
+        if (row) {
+          const s = (row.state || '').toLowerCase();
+          const isTN = s
+            ? (s.includes('tamil nadu') || s.includes('tamilnadu') || s.includes('puducherry') || s.includes('pondicherry'))
+            : (row.latitude >= 8.08 &&
+                row.latitude <= 13.55 &&
+                row.longitude >= 76.23 &&
+                row.longitude <= 80.35);
+
+          cached = {
+            canonicalName: row.canonicalName,
+            district: row.district,
+            state: row.state,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            source: row.source || 'cache',
+            isTamilNadu: isTN,
+          };
+          setCachedLocation(searchKey, cached);
+        }
+      }
 
       if (cached) {
         return {

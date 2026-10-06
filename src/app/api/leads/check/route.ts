@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { parsePhoneNumber } from '@/lib/utils';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,181 +12,405 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || '';
     const consultant = searchParams.get('consultant') || '';
-    const branchParam = searchParams.get('branch') || '';
+    const requestedBranch = searchParams.get('branch') || '';
+    const branch = !isAdmin && currentUser?.assignedBranch
+      ? currentUser.assignedBranch
+      : requestedBranch;
+
+    const requestedPlatform = searchParams.get('platform') || '';
+    const platform = !isAdmin && currentUser?.assignedPlatform
+      ? currentUser.assignedPlatform
+      : requestedPlatform;
+
+    const city = searchParams.get('city') || '';
     const testDrive = searchParams.get('testDrive') || '';
+    const carModel = searchParams.get('carModel') || searchParams.get('model') || '';
     const startDate = searchParams.get('startDate') || '';
     const endDate = searchParams.get('endDate') || '';
+    const followUpDate = searchParams.get('followUpDate') || '';
+    const followUpStartDate = searchParams.get('followUpStartDate') || followUpDate;
+    const followUpEndDate = searchParams.get('followUpEndDate') || followUpDate;
+    const hasFollowUp = searchParams.get('hasFollowUp') === 'true' || searchParams.get('hasFollowUp') === '1' || searchParams.get('onlyFollowUps') === 'true' || Boolean(followUpStartDate || followUpEndDate);
     const uploader = searchParams.get('uploader');
     const uploadedById = searchParams.get('uploadedById');
     const source = searchParams.get('source');
-    const hasFollowUp = searchParams.get('hasFollowUp') === 'true' || searchParams.get('hasFollowUp') === '1' || searchParams.get('onlyFollowUps') === 'true';
     const category = searchParams.get('category')?.trim().toLowerCase() || 'all';
 
-    // Build filter matching active user view
+    // Build base filter matching active user view (without category and status scoping)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {};
+    const statsWhere: any = {};
 
-    // Branch scoping
-    let branch = branchParam;
-    if (!isAdmin && currentUser?.assignedBranch) {
-      branch = currentUser.assignedBranch;
-    }
-
-    const activeBranches = await prisma.branch.findMany({
-      where: { isActive: true },
-      select: { name: true },
-    });
-    const activeBranchNames = activeBranches.map((b: { name: string }) => b.name);
-
-    if (category === 'priority') {
-      const now = new Date();
-      const istFormatter = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
+    // Soft delete filter: Exclude leads hidden by this user
+    if (currentUser?.userId) {
+      const hiddenRecords = await prisma.hiddenLead.findMany({
+        where: { userId: currentUser.userId },
+        select: { leadId: true },
       });
-      const istTodayStr = istFormatter.format(now);
-      const todayEndOfDay = new Date(`${istTodayStr}T23:59:59.999+05:30`);
-
-      where.AND = [
-        ...(where.AND || []),
-        { branch: { in: activeBranchNames } },
-        {
-          OR: [
-            { followUpDate1: { lte: todayEndOfDay } },
-            { followUpDate2: { lte: todayEndOfDay } },
-          ],
-        },
-      ];
-    } else if (category === 'valid') {
-      where.AND = [
-        ...(where.AND || []),
-        { branch: { in: activeBranchNames } },
-      ];
-    } else if (category === 'unassigned') {
-      where.AND = [
-        ...(where.AND || []),
-        { branch: { notIn: activeBranchNames } },
-      ];
-    }
-
-    if (search) {
-      const cleanPhone = parsePhoneNumber(search);
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: cleanPhone || search } },
-        { city: { contains: search, mode: 'insensitive' } },
-        { adname: { contains: search, mode: 'insensitive' } },
-        { remark: { contains: search, mode: 'insensitive' } },
-      ];
+      if (hiddenRecords.length > 0) {
+        statsWhere.id = { notIn: hiddenRecords.map(r => r.leadId) };
+      }
     }
 
     if (startDate || endDate) {
-      where.createdAt = {};
+      statsWhere.createdAt = {};
       if (startDate) {
-        where.createdAt.gte = new Date(`${startDate}T00:00:00+05:30`);
+        statsWhere.createdAt.gte = new Date(`${startDate}T00:00:00+05:30`);
       }
       if (endDate) {
-        where.createdAt.lte = new Date(`${endDate}T23:59:59.999+05:30`);
+        statsWhere.createdAt.lte = new Date(`${endDate}T23:59:59.999+05:30`);
       }
     }
 
-    if (hasFollowUp) {
-      where.AND = [
-        ...(where.AND || []),
+    if (search.trim()) {
+      const tokens = search.trim().split(/\s+/).filter(Boolean);
+      const searchConditions = tokens.map(token => {
+        const tokenDigits = token.replace(/\D/g, '');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const fields: any[] = [
+          { name: { contains: token, mode: 'insensitive' } },
+          { phone: { contains: token, mode: 'insensitive' } },
+          { city: { contains: token, mode: 'insensitive' } },
+          { adname: { contains: token, mode: 'insensitive' } },
+          { carModel: { contains: token, mode: 'insensitive' } },
+          { branch: { contains: token, mode: 'insensitive' } },
+          { remark: { contains: token, mode: 'insensitive' } },
+        ];
+        if (tokenDigits && tokenDigits.length >= 3) {
+          fields.push({ phone: { contains: tokenDigits, mode: 'insensitive' } });
+        }
+        return { OR: fields };
+      });
+
+      statsWhere.AND = [
+        ...(statsWhere.AND || []),
+        ...searchConditions
+      ];
+    }
+
+    if (city) {
+      statsWhere.city = { contains: city, mode: 'insensitive' };
+    }
+
+    if (branch) {
+      const branchTokens = branch.split(',').map(b => b.trim()).filter(Boolean);
+      if (branchTokens.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const branchConditions: any[] = branchTokens.map(b => {
+          const words = b.split(/\s+/).filter(Boolean);
+          if (words.length > 1) {
+            return { AND: words.map(w => ({ branch: { contains: w, mode: 'insensitive' } })) };
+          }
+          return { branch: { contains: b, mode: 'insensitive' } };
+        });
+        statsWhere.AND = [
+          ...(statsWhere.AND || []),
+          { OR: branchConditions }
+        ];
+      }
+    }
+
+    if (platform) {
+      const platformTokens = platform.split(',').map((p: string) => p.trim()).filter(Boolean);
+      if (platformTokens.length > 0) {
+        const mapPlatformValue = (val: string): string[] => {
+          const lower = val.toLowerCase();
+          if (lower === 'facebook' || lower === 'fb') return ['Fb'];
+          if (lower === 'instagram' || lower === 'ig') return ['Ig'];
+          if (lower === 'meta ads') return ['Fb', 'Ig'];
+          return [val];
+        };
+        const dbPlatforms = Array.from(new Set(platformTokens.flatMap(mapPlatformValue)));
+        if (dbPlatforms.length === 1) {
+          statsWhere.platform = dbPlatforms[0];
+        } else {
+          statsWhere.AND = [
+            ...(statsWhere.AND || []),
+            { platform: { in: dbPlatforms } }
+          ];
+        }
+      }
+    }
+
+    if (consultant) {
+      const consultantTokens = consultant.split(',').map(c => c.trim()).filter(Boolean);
+      if (consultantTokens.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const consultantConditions: any[] = [];
+        consultantTokens.forEach(c => {
+          if (c === 'Unassigned') {
+            consultantConditions.push({ assignedConsultant: null }, { assignedConsultant: '' });
+          } else {
+            consultantConditions.push({ assignedConsultant: c });
+          }
+        });
+        statsWhere.AND = [
+          ...(statsWhere.AND || []),
+          { OR: consultantConditions }
+        ];
+      }
+    }
+
+    if (testDrive) {
+      const tdTokens = testDrive.split(',').map(s => s.trim()).filter(Boolean);
+      if (tdTokens.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const testDriveConditions: any[] = [];
+        tdTokens.forEach(td => {
+          if (td === 'Not Scheduled') {
+            testDriveConditions.push(
+              { testDrive: null },
+              { testDrive: '' },
+              { testDrive: 'Not Scheduled' },
+              { testDrive: 'No' }
+            );
+          } else if (td === 'Scheduled') {
+            testDriveConditions.push(
+              { testDrive: 'Scheduled' },
+              { testDrive: 'Yes' }
+            );
+          } else {
+            testDriveConditions.push({ testDrive: td });
+          }
+        });
+        statsWhere.AND = [
+          ...(statsWhere.AND || []),
+          { OR: testDriveConditions }
+        ];
+      }
+    }
+
+    if (carModel) {
+      const modelTokens = carModel.split(',').map(m => m.trim()).filter(Boolean);
+      if (modelTokens.length > 0) {
+        statsWhere.AND = [
+          ...(statsWhere.AND || []),
+          { OR: modelTokens.map(m => ({ carModel: { contains: m, mode: 'insensitive' } })) }
+        ];
+      }
+    }
+
+    if (followUpStartDate || followUpEndDate) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const f1Cond: any = {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const f2Cond: any = {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fFollowUpCond: any = {};
+      if (followUpStartDate) {
+        const start = new Date(`${followUpStartDate}T00:00:00+05:30`);
+        f1Cond.gte = start;
+        f2Cond.gte = start;
+        fFollowUpCond.gte = start;
+      }
+      if (followUpEndDate) {
+        const end = new Date(`${followUpEndDate}T23:59:59.999+05:30`);
+        f1Cond.lte = end;
+        f2Cond.lte = end;
+        fFollowUpCond.lte = end;
+      }
+      statsWhere.AND = [
+        ...(statsWhere.AND || []),
+        {
+          OR: [
+            { followUpDate1: f1Cond },
+            { followUpDate2: f2Cond },
+            { followUps: { some: { date: fFollowUpCond } } },
+          ]
+        }
+      ];
+    } else if (hasFollowUp) {
+      statsWhere.AND = [
+        ...(statsWhere.AND || []),
         {
           OR: [
             { followUpDate1: { not: null } },
             { followUpDate2: { not: null } },
+            { followUpCount: { gt: 0 } },
+            { followUps: { some: {} } },
           ]
         }
       ];
     }
 
-    if (branch) {
-      const words = branch.split(' ').filter(Boolean);
-      if (words.length > 0) {
-        where.AND = [
-          ...(where.AND || []),
-          ...words.map(w => ({ branch: { contains: w, mode: 'insensitive' } }))
-        ];
-      }
-    }
-
-    if (consultant) {
-      if (consultant === 'Unassigned') {
-        where.OR = [
-          { assignedConsultant: null },
-          { assignedConsultant: '' }
-        ];
-      } else {
-        where.assignedConsultant = consultant;
-      }
-    }
-
-    if (testDrive) {
-      if (testDrive === 'Not Scheduled') {
-        where.AND = [
-          ...(where.AND || []),
-          {
-            OR: [
-              { testDrive: null },
-              { testDrive: '' },
-              { testDrive: 'Not Scheduled' },
-              { testDrive: 'No' },
-            ]
-          }
-        ];
-      } else if (testDrive === 'Scheduled') {
-        where.AND = [
-          ...(where.AND || []),
-          {
-            OR: [
-              { testDrive: 'Scheduled' },
-              { testDrive: 'Yes' },
-            ]
-          }
-        ];
-      } else {
-        where.testDrive = testDrive;
-      }
-    }
-
     if (uploadedById) {
       const parsedId = parseInt(uploadedById);
       if (!isNaN(parsedId)) {
-        where.uploadedById = parsedId;
+        statsWhere.uploadedById = parsedId;
       }
     }
 
     if (uploader) {
-      where.uploadedBy = { username: { equals: uploader.trim(), mode: 'insensitive' } };
+      const uploaderTokens = uploader.split(',').map(u => u.trim()).filter(Boolean);
+      if (uploaderTokens.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const uploaderConditions: any[] = [];
+        uploaderTokens.forEach(u => {
+          if (u === 'system' || u === 'sheet') {
+            uploaderConditions.push({ source: { not: 'External Upload' } });
+          } else if (u === 'external') {
+            uploaderConditions.push({ source: 'External Upload' });
+          } else if (u.startsWith('user:')) {
+            const uName = u.replace('user:', '').trim();
+            uploaderConditions.push({ uploadedBy: { username: { equals: uName, mode: 'insensitive' } } });
+          } else {
+            uploaderConditions.push({ uploadedBy: { username: { equals: u, mode: 'insensitive' } } });
+          }
+        });
+        statsWhere.AND = [
+          ...(statsWhere.AND || []),
+          { OR: uploaderConditions }
+        ];
+      }
     }
 
     if (source) {
       if (source === 'External Upload' || source === 'external') {
-        where.source = 'External Upload';
+        statsWhere.source = 'External Upload';
       } else if (source === 'System' || source === 'system' || source === 'sheet') {
-        where.source = { not: 'External Upload' };
+        statsWhere.source = { not: 'External Upload' };
       }
     }
+
+    // Active branches and categories matching /api/leads exactly
+    const now = new Date();
+    const kolkataFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const todayDateStr = kolkataFormatter.format(now);
+    const todayEndOfDay = new Date(`${todayDateStr}T23:59:59.999+05:30`);
+
+    const activeBranches = await prisma.branch.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        city: true,
+        latitude: true,
+        longitude: true,
+        radiusKm: true,
+        isActive: true,
+      },
+    });
+    const activeBranchNames: string[] = [];
+    const activeBranchSet = new Set<string>();
+    const activeBranchLookup = new Map<string, string>();
+
+    activeBranches.forEach((b: { name: string; code?: string | null }) => {
+      const cleanName = b.name.trim();
+      const lowerName = cleanName.toLowerCase();
+      activeBranchNames.push(cleanName);
+      activeBranchSet.add(lowerName);
+      activeBranchLookup.set(lowerName, cleanName);
+
+      if (b.code) {
+        const cleanCode = b.code.trim();
+        const lowerCode = cleanCode.toLowerCase();
+        activeBranchNames.push(cleanCode);
+        activeBranchSet.add(lowerCode);
+        activeBranchLookup.set(lowerCode, cleanName);
+      }
+
+      if (!lowerName.startsWith('sga')) {
+        const sgaMotorsVariant = `SGA Motors ${cleanName}`;
+        const sgaVariant = `SGA ${cleanName}`;
+        activeBranchNames.push(sgaMotorsVariant);
+        activeBranchNames.push(sgaVariant);
+        activeBranchSet.add(sgaMotorsVariant.toLowerCase());
+        activeBranchSet.add(sgaVariant.toLowerCase());
+        activeBranchLookup.set(sgaMotorsVariant.toLowerCase(), cleanName);
+        activeBranchLookup.set(sgaVariant.toLowerCase(), cleanName);
+      }
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const validBranchCondition: any = {
+      branch: { in: activeBranchNames },
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const unassignedBranchCondition: any = {
+      branch: { notIn: activeBranchNames },
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const validPhoneCondition: any = {
+      isInvalidPhone: false,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invalidPhoneCondition: any = {
+      isInvalidPhone: true,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const priorityFollowUpCondition: any = {
+      OR: [
+        { followUpDate1: { lte: todayEndOfDay, not: null } },
+        { followUpDate2: { lte: todayEndOfDay, not: null } },
+        { followUps: { some: { date: { lte: todayEndOfDay } } } },
+      ],
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = { ...statsWhere };
 
     if (status) {
-      if (status === 'not_contacted' || status === 'created') {
-        where.status = { in: ['not_contacted', 'created'] };
-      } else if (status === 'pending') {
-        where.status = 'pending';
-      } else if (status === 'live' || status === 'closed_successful') {
-        where.status = { in: ['live', 'closed_successful'] };
-      } else if (status === 'lost' || status === 'closed_unsuccessful') {
-        where.status = { in: ['lost', 'closed_unsuccessful'] };
-      } else {
-        where.status = status;
+      const statusTokens = status.split(',').map(s => s.trim()).filter(Boolean);
+      if (statusTokens.length > 0) {
+        const dbStatuses = new Set<string>();
+        statusTokens.forEach(st => {
+          if (st === 'not_contacted' || st === 'created') {
+            dbStatuses.add('not_contacted');
+            dbStatuses.add('created');
+          } else if (st === 'pending') {
+            dbStatuses.add('pending');
+          } else if (st === 'callback') {
+            dbStatuses.add('callback');
+          } else if (st === 'live' || st === 'closed_successful') {
+            dbStatuses.add('live');
+            dbStatuses.add('closed_successful');
+          } else if (st === 'lost' || st === 'closed_unsuccessful') {
+            dbStatuses.add('lost');
+            dbStatuses.add('closed_unsuccessful');
+          } else {
+            dbStatuses.add(st);
+          }
+        });
+        where.status = { in: Array.from(dbStatuses) };
       }
     }
 
-    // Step 1: Lightweight aggregate check
+    if (category === 'valid') {
+      where.AND = [
+        ...(where.AND || []),
+        validPhoneCondition,
+        validBranchCondition,
+      ];
+    } else if (category === 'invalid') {
+      where.AND = [
+        ...(where.AND || []),
+        invalidPhoneCondition,
+      ];
+    } else if (category === 'outside' || category === 'unassigned') {
+      where.AND = [
+        ...(where.AND || []),
+        validPhoneCondition,
+        unassignedBranchCondition,
+      ];
+    } else if (category === 'priority') {
+      where.AND = [
+        ...(where.AND || []),
+        validPhoneCondition,
+        validBranchCondition,
+        priorityFollowUpCondition,
+      ];
+    }
+
+    // Step 1: Lightweight aggregate check on the scoped where
     const aggregate = await prisma.lead.aggregate({
       where,
       _count: true,
@@ -213,8 +436,16 @@ export async function GET(request: NextRequest) {
           });
         }
 
-        // Fetch changed leads and fresh stats in parallel
-        const [changedLeads, statusCounts] = await Promise.all([
+        // Fetch changed leads and fresh stats (including full categoryStats) in parallel
+        const [
+          changedLeads,
+          statusCounts,
+          validCount,
+          invalidCount,
+          outsideCount,
+          allCount,
+          priorityCount,
+        ] = await Promise.all([
           prisma.lead.findMany({
             where: {
               ...where,
@@ -226,9 +457,15 @@ export async function GET(request: NextRequest) {
               phone: true,
               city: true,
               adname: true,
+              carModel: true,
               branch: true,
               followUpDate1: true,
               followUpDate2: true,
+              followUpCount: true,
+              followUps: {
+                select: { id: true, step: true, date: true, createdAt: true },
+                orderBy: { step: 'asc' as const },
+              },
               remark: true,
               status: true,
               testDrive: true,
@@ -248,10 +485,58 @@ export async function GET(request: NextRequest) {
             take: 50,
           }),
           prisma.lead.groupBy({
-            where,
+            where: status || (category && category !== 'all') ? where : statsWhere,
             by: ['status'],
             _count: {
               status: true,
+            },
+          }),
+          // 1. Valid: Tamil Nadu leads with valid phone number
+          prisma.lead.count({
+            where: {
+              ...statsWhere,
+              AND: [
+                ...(statsWhere.AND || []),
+                validPhoneCondition,
+                validBranchCondition,
+              ],
+            },
+          }),
+          // 2. Invalid: Leads with invalid phone number
+          prisma.lead.count({
+            where: {
+              ...statsWhere,
+              AND: [
+                ...(statsWhere.AND || []),
+                invalidPhoneCondition,
+              ],
+            },
+          }),
+          // 3. Outside: Leads outside Tamil Nadu with valid phone number
+          prisma.lead.count({
+            where: {
+              ...statsWhere,
+              AND: [
+                ...(statsWhere.AND || []),
+                validPhoneCondition,
+                unassignedBranchCondition,
+              ],
+            },
+          }),
+          // 4. All leads matching active statsWhere filters
+          prisma.lead.count({
+            where: statsWhere,
+          }),
+          // 5. Priority follow-up leads
+          prisma.lead.count({
+            where: {
+              ...statsWhere,
+              AND: [
+                ...(statsWhere.AND || []),
+                validPhoneCondition,
+                validBranchCondition,
+                priorityFollowUpCondition,
+              ],
             },
           }),
         ]);
@@ -268,6 +553,7 @@ export async function GET(request: NextRequest) {
         let totalLeads = 0;
         let notContactedLeads = 0;
         let pendingLeads = 0;
+        let callbackLeads = 0;
         let liveLeads = 0;
         let lostLeads = 0;
 
@@ -278,6 +564,8 @@ export async function GET(request: NextRequest) {
             notContactedLeads += c;
           } else if (group.status === 'pending') {
             pendingLeads += c;
+          } else if (group.status === 'callback') {
+            callbackLeads += c;
           } else if (['live', 'closed_successful'].includes(group.status)) {
             liveLeads += c;
           } else if (['lost', 'closed_unsuccessful'].includes(group.status)) {
@@ -285,21 +573,49 @@ export async function GET(request: NextRequest) {
           }
         });
 
+        const categoryStats = {
+          valid: validCount,
+          invalid: invalidCount,
+          outside: outsideCount,
+          all: allCount,
+          priority: priorityCount,
+          unassigned: outsideCount,
+        };
+
         const stats = {
           total: totalLeads,
           notContacted: notContactedLeads,
           pending: pendingLeads,
+          callback: callbackLeads,
           live: liveLeads,
           lost: lostLeads,
           open: pendingLeads,
           closedSuccessful: liveLeads,
           closedUnsuccessful: lostLeads,
+          categories: categoryStats,
         };
+
+        // In-memory branch normalization for changed leads
+        for (const lead of changedLeads) {
+          const currentBranchTrimmed = (lead.branch || '').toLowerCase().trim();
+          const normBranch = currentBranchTrimmed.replace(/^sga\s+(motors\s+)?/i, '').trim();
+          if (currentBranchTrimmed) {
+            if (activeBranchSet.has(currentBranchTrimmed)) {
+              const canonical = activeBranchLookup.get(currentBranchTrimmed) || activeBranchLookup.get(normBranch);
+              if (canonical) lead.branch = canonical;
+            } else if (activeBranchSet.has(normBranch)) {
+              const canonical = activeBranchLookup.get(normBranch);
+              if (canonical) lead.branch = canonical;
+            } else {
+              lead.branch = '';
+            }
+          }
+        }
 
         return NextResponse.json({
           hasChanges: true,
           changedLeads,
-          count: totalLeads,
+          count,
           stats,
           lastUpdated: lastUpdated.toISOString(),
         });
@@ -308,7 +624,7 @@ export async function GET(request: NextRequest) {
 
     // Default response if no 'since' provided
     return NextResponse.json({
-      hasChanges: true,
+      hasChanges: false,
       changedLeads: [],
       count,
       lastUpdated: lastUpdated ? lastUpdated.toISOString() : null,

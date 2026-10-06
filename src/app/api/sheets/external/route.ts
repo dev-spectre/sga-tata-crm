@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       platform: userMapping?.platform ?? 10,
       assignedConsultant: userMapping?.assignedConsultant ?? -1,
       testDrive: userMapping?.testDrive ?? -1,
+      carModel: userMapping?.carModel ?? -1,
     };
 
     const dataRows = rows.slice(1);
@@ -222,11 +223,15 @@ export async function POST(request: NextRequest) {
                      (currentUser.assignedBranch && activeBranchLookup.get(currentUser.assignedBranch.toLowerCase().trim())) ||
                      '';
 
+      const rawCarModel = sanitizeField(getVal(row, mapping.carModel));
+      const carModel = rawCarModel || '';
+
       toCreate.push({
         name: name || 'Unknown',
         phone,
         city: cleanCity,
         adname: sanitizeField(getVal(row, mapping.adname)),
+        carModel,
         branch,
         remark: sanitizeField(getVal(row, mapping.remark)) || null,
         assignedConsultant,

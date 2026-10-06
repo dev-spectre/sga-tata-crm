@@ -599,6 +599,7 @@ tbody tr:hover { background: var(--bg-card-hover); }
 }
 .status-badge.not_contacted, .status-badge.created { background: rgba(100, 116, 139, 0.12); color: #475569; border: 1px solid rgba(100, 116, 139, 0.25); }
 .status-badge.pending { background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); }
+.status-badge.callback { background: rgba(139, 92, 246, 0.15); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.3); }
 .status-badge.live, .status-badge.closed_successful { background: rgba(16, 185, 129,0.15); color: var(--status-success); border: 1px solid rgba(16, 185, 129,0.3); }
 .status-badge.lost, .status-badge.closed_unsuccessful { background: rgba(255,82,82,0.15); color: var(--status-fail); border: 1px solid rgba(255,82,82,0.3); }
 .status-badge::before {
@@ -659,6 +660,12 @@ select:focus, select:hover {
   background-color: #fffbeb !important;
   color: #b45309 !important;
   border-color: #fde68a !important;
+}
+
+.status-select.status-callback {
+  background-color: #f5f3ff !important;
+  color: #6d28d9 !important;
+  border-color: #ddd6fe !important;
 }
 
 .status-select.status-live {
@@ -1684,9 +1691,11 @@ select:focus, select:hover {
   margin: 0 auto 28px;
   line-height: 1.7;
 }
-.landing-cta { margin-top: 8px; }
-.btn-primary {
-  display: inline-block;
+.landing-cta .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 14px 32px;
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   color: #fff;
@@ -1694,10 +1703,10 @@ select:focus, select:hover {
   font-size: 15px;
   border-radius: var(--radius-sm);
   text-decoration: none;
-  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 15px rgba(0, 114, 188, 0.3);
   transition: transform 0.15s, box-shadow 0.15s;
 }
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 32px rgba(16, 185, 129, 0.45); }
+.landing-cta .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0, 114, 188, 0.4); }
 
 .landing-features,
 .landing-oauth,
@@ -1775,6 +1784,6 @@ select:focus, select:hover {
   .landing-brand h1 { font-size: 18px; }
   .landing-nav a { padding: 8px 16px; font-size: 12px; }
   .landing-page main { padding: 8px 20px 40px; }
-  .btn-primary { padding: 12px 24px; font-size: 14px; }
+  .landing-cta .btn-primary { padding: 12px 24px; font-size: 14px; }
   .landing-footer { padding: 24px 20px; }
 }

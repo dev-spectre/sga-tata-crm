@@ -5,6 +5,7 @@ export interface ColumnMapping {
   phone: number;
   city?: number;
   adname?: number;
+  carModel?: number;
   branch?: number;
   followUpDate1?: number;
   followUpDate2?: number;
@@ -44,6 +45,7 @@ export async function computeIntelligentMapping(
     phone: [/^phone$/i, /^mobile$/i, /^contact\s?_?no/i, /phone|mobile|contact|cell|number/i],
     city: [/^city$/i, /^location$/i, /city|location|town/i],
     adname: [/^ad\s?_?name$/i, /^campaign\s?_?name$/i, /ad\s?name|campaign\s?name/i],
+    carModel: [/^car\s?_?model$/i, /^model$/i, /^vehicle$/i, /^car$/i, /car\s?model|model\s?name|variant/i],
     branch: [/^branch$/i, /^office$/i, /branch|office/i],
     platform: [/^platform$/i, /^source\s?_?platform$/i, /^lead\s?_?platform$/i, /^source$/i, /^publisher$/i, /^channel$/i, /platform|source|publisher|channel|meta|facebook|ig|instagram|google/i],
     followUpDate1: [/^follow\s?up\s?date\s?1$/i, /^follow\s?up\s?1$/i, /follow up 1|date 1/i],

@@ -20,9 +20,12 @@ export async function PATCH(
       remark,
       followUpDate1,
       followUpDate2,
+      newFollowUpDate,
+      updateFollowUp,
       assignedConsultant,
       testDrive,
       branch,
+      carModel,
       clearConsultant,
     } = body;
     
@@ -47,15 +50,185 @@ export async function PATCH(
     const updateData: any = {};
     if (status !== undefined) updateData.status = status;
     if (remark !== undefined) updateData.remark = remark;
-    if (followUpDate1 !== undefined) {
-      updateData.followUpDate1 = followUpDate1 ? new Date(followUpDate1) : null;
+
+    const ensureExistingFollowUps = async () => {
+      let existing = await prisma.leadFollowUp.findMany({
+        where: { leadId },
+        orderBy: { step: 'asc' },
+      });
+      if (existing.length === 0) {
+        if (lead.followUpDate1) {
+          await prisma.leadFollowUp.create({
+            data: { leadId, step: 1, date: lead.followUpDate1 }
+          });
+        }
+        if (lead.followUpDate2) {
+          await prisma.leadFollowUp.create({
+            data: { leadId, step: 2, date: lead.followUpDate2 }
+          });
+        }
+        existing = await prisma.leadFollowUp.findMany({
+          where: { leadId },
+          orderBy: { step: 'asc' },
+        });
+      }
+      return existing;
+    };
+
+    // 1. Appending a new follow-up step
+    if (newFollowUpDate && typeof newFollowUpDate === 'string' && newFollowUpDate.trim()) {
+      const existingFollowUps = await ensureExistingFollowUps();
+
+      let currentMaxStep = 0;
+      if (existingFollowUps.length > 0) {
+        currentMaxStep = existingFollowUps[existingFollowUps.length - 1].step;
+      }
+
+      let nextStep = currentMaxStep + 1;
+      if (typeof body.step === 'number' && body.step > currentMaxStep) {
+        nextStep = body.step;
+      }
+      const parsedDate = new Date(`${newFollowUpDate.trim()}T12:00:00+05:30`);
+      await prisma.leadFollowUp.create({
+        data: {
+          leadId,
+          step: nextStep,
+          date: parsedDate,
+        }
+      });
+
+      const allFollowUps = await prisma.leadFollowUp.findMany({
+        where: { leadId },
+        orderBy: { step: 'asc' },
+      });
+      updateData.followUpCount = allFollowUps.length;
+      updateData.followUpDate1 = allFollowUps[0]?.date || null;
+      updateData.followUpDate2 = allFollowUps.length > 1 ? allFollowUps[allFollowUps.length - 1].date : null;
     }
-    if (followUpDate2 !== undefined) {
-      updateData.followUpDate2 = followUpDate2 ? new Date(followUpDate2) : null;
+
+    // 2. Editing or Clearing an existing follow-up step
+    const stepToDelete = body.deleteFollowUpStep !== undefined
+      ? Number(body.deleteFollowUpStep)
+      : (updateFollowUp && typeof updateFollowUp === 'object' && updateFollowUp.step && (!updateFollowUp.date || !String(updateFollowUp.date).trim() || updateFollowUp.clear))
+      ? Number(updateFollowUp.step)
+      : null;
+
+    if (stepToDelete !== null && !isNaN(stepToDelete)) {
+      await ensureExistingFollowUps();
+      await prisma.leadFollowUp.deleteMany({
+        where: { leadId, step: stepToDelete },
+      });
+
+      const remaining = await prisma.leadFollowUp.findMany({
+        where: { leadId },
+        orderBy: { step: 'asc' },
+      });
+
+      // Re-index remaining steps to contiguous 1, 2, 3...
+      for (let i = 0; i < remaining.length; i++) {
+        const targetStep = i + 1;
+        if (remaining[i].step !== targetStep) {
+          await prisma.leadFollowUp.update({
+            where: { id: remaining[i].id },
+            data: { step: targetStep },
+          });
+          remaining[i].step = targetStep;
+        }
+      }
+
+      const newCount = remaining.length;
+      updateData.followUpCount = newCount;
+      updateData.followUpDate1 = newCount > 0 ? remaining[0].date : null;
+      updateData.followUpDate2 = newCount > 1 ? remaining[newCount - 1].date : null;
+    } else if (updateFollowUp && typeof updateFollowUp === 'object' && updateFollowUp.step && updateFollowUp.date && String(updateFollowUp.date).trim()) {
+      await ensureExistingFollowUps();
+      const stepNum = Number(updateFollowUp.step);
+      const parsedDate = new Date(`${String(updateFollowUp.date).trim()}T12:00:00+05:30`);
+      const existingStep = await prisma.leadFollowUp.findFirst({
+        where: { leadId, step: stepNum }
+      });
+      if (existingStep) {
+        await prisma.leadFollowUp.update({
+          where: { id: existingStep.id },
+          data: { date: parsedDate }
+        });
+      } else {
+        await prisma.leadFollowUp.create({
+          data: { leadId, step: stepNum, date: parsedDate }
+        });
+      }
+      const allFollowUps = await prisma.leadFollowUp.findMany({
+        where: { leadId },
+        orderBy: { step: 'asc' },
+      });
+      updateData.followUpCount = allFollowUps.length;
+      updateData.followUpDate1 = allFollowUps[0]?.date || null;
+      updateData.followUpDate2 = allFollowUps.length > 1 ? allFollowUps[allFollowUps.length - 1].date : null;
+    }
+
+    // 3. Fallback for explicit legacy followUpDate1 & followUpDate2
+    if (followUpDate1 !== undefined && !newFollowUpDate && !updateFollowUp && body.deleteFollowUpStep === undefined) {
+      if (!followUpDate1 || !String(followUpDate1).trim()) {
+        await ensureExistingFollowUps();
+        await prisma.leadFollowUp.deleteMany({ where: { leadId, step: 1 } });
+        const remaining = await prisma.leadFollowUp.findMany({ where: { leadId }, orderBy: { step: 'asc' } });
+        for (let i = 0; i < remaining.length; i++) {
+          const targetStep = i + 1;
+          if (remaining[i].step !== targetStep) {
+            await prisma.leadFollowUp.update({ where: { id: remaining[i].id }, data: { step: targetStep } });
+            remaining[i].step = targetStep;
+          }
+        }
+        const newCount = remaining.length;
+        updateData.followUpCount = newCount;
+        updateData.followUpDate1 = newCount > 0 ? remaining[0].date : null;
+        updateData.followUpDate2 = newCount > 1 ? remaining[newCount - 1].date : null;
+      } else {
+        const f1 = new Date(followUpDate1);
+        updateData.followUpDate1 = f1;
+        const existingF1 = await prisma.leadFollowUp.findFirst({ where: { leadId, step: 1 } });
+        if (existingF1) {
+          await prisma.leadFollowUp.update({ where: { id: existingF1.id }, data: { date: f1 } });
+        } else {
+          await prisma.leadFollowUp.create({ data: { leadId, step: 1, date: f1 } });
+        }
+        if ((lead.followUpCount || 0) < 1) updateData.followUpCount = 1;
+      }
+    }
+    if (followUpDate2 !== undefined && !newFollowUpDate && !updateFollowUp && body.deleteFollowUpStep === undefined) {
+      if (!followUpDate2 || !String(followUpDate2).trim()) {
+        await ensureExistingFollowUps();
+        await prisma.leadFollowUp.deleteMany({ where: { leadId, step: 2 } });
+        const remaining = await prisma.leadFollowUp.findMany({ where: { leadId }, orderBy: { step: 'asc' } });
+        for (let i = 0; i < remaining.length; i++) {
+          const targetStep = i + 1;
+          if (remaining[i].step !== targetStep) {
+            await prisma.leadFollowUp.update({ where: { id: remaining[i].id }, data: { step: targetStep } });
+            remaining[i].step = targetStep;
+          }
+        }
+        const newCount = remaining.length;
+        updateData.followUpCount = newCount;
+        updateData.followUpDate1 = newCount > 0 ? remaining[0].date : null;
+        updateData.followUpDate2 = newCount > 1 ? remaining[newCount - 1].date : null;
+      } else {
+        const f2 = new Date(followUpDate2);
+        updateData.followUpDate2 = f2;
+        const existingF2 = await prisma.leadFollowUp.findFirst({ where: { leadId, step: 2 } });
+        if (existingF2) {
+          await prisma.leadFollowUp.update({ where: { id: existingF2.id }, data: { date: f2 } });
+        } else {
+          await prisma.leadFollowUp.create({ data: { leadId, step: 2, date: f2 } });
+        }
+        if ((lead.followUpCount || 0) < 2) updateData.followUpCount = 2;
+      }
     }
     if (assignedConsultant !== undefined) updateData.assignedConsultant = assignedConsultant?.trim() || null;
     if (clearConsultant === true) updateData.assignedConsultant = null;
     if (testDrive !== undefined) updateData.testDrive = testDrive;
+    if (carModel !== undefined) {
+      updateData.carModel = typeof carModel === 'string' ? carModel.trim() : '';
+    }
     if (branch !== undefined) {
       const rawBranch = typeof branch === 'string' ? branch.trim() : '';
       const lowerRawBranch = rawBranch.toLowerCase().trim();
@@ -115,6 +288,12 @@ export async function PATCH(
     const updatedLead = await prisma.lead.update({
       where: { id: leadId },
       data: updateData,
+      include: {
+        followUps: {
+          select: { id: true, step: true, date: true, createdAt: true },
+          orderBy: { step: 'asc' },
+        },
+      },
     });
 
     // Log activity diff (skips superadmin automatically)
@@ -144,21 +323,25 @@ export async function PATCH(
           if (status !== undefined && mapping.status !== undefined) {
             let formattedStatus = status;
             if (status === 'pending') formattedStatus = 'Contacted';
+            else if (status === 'callback') formattedStatus = 'Callback';
             else if (status === 'live') formattedStatus = 'Completed';
             else if (status === 'lost') formattedStatus = 'Lost';
             else if (status === 'not_contacted') formattedStatus = 'Not Contacted';
             updates.push({ col: mapping.status, value: formattedStatus });
           }
-          if (followUpDate1 !== undefined && mapping.followUpDate1 !== undefined) {
+          const finalF1 = updateData.followUpDate1 !== undefined ? updateData.followUpDate1 : (followUpDate1 !== undefined ? followUpDate1 : lead.followUpDate1);
+          const finalF2 = updateData.followUpDate2 !== undefined ? updateData.followUpDate2 : (followUpDate2 !== undefined ? followUpDate2 : lead.followUpDate2);
+
+          if ((updateData.followUpDate1 !== undefined || followUpDate1 !== undefined) && mapping.followUpDate1 !== undefined && mapping.followUpDate1 >= 0) {
             updates.push({ 
               col: mapping.followUpDate1, 
-              value: followUpDate1 ? new Date(followUpDate1).toISOString().split('T')[0] : '' 
+              value: finalF1 ? new Date(finalF1).toISOString().split('T')[0] : '' 
             });
           }
-          if (followUpDate2 !== undefined && mapping.followUpDate2 !== undefined) {
+          if ((updateData.followUpDate2 !== undefined || followUpDate2 !== undefined) && mapping.followUpDate2 !== undefined && mapping.followUpDate2 >= 0) {
             updates.push({ 
               col: mapping.followUpDate2, 
-              value: followUpDate2 ? new Date(followUpDate2).toISOString().split('T')[0] : '' 
+              value: finalF2 ? new Date(finalF2).toISOString().split('T')[0] : '' 
             });
           }
           if (assignedConsultant !== undefined && mapping.assignedConsultant !== undefined && mapping.assignedConsultant >= 0) {
@@ -172,6 +355,9 @@ export async function PATCH(
           }
           if (branch !== undefined && mapping.branch !== undefined && mapping.branch >= 0) {
             updates.push({ col: mapping.branch, value: updateData.branch });
+          }
+          if (carModel !== undefined && mapping.carModel !== undefined && mapping.carModel >= 0) {
+            updates.push({ col: mapping.carModel, value: updateData.carModel });
           }
 
           if (updates.length > 0) {

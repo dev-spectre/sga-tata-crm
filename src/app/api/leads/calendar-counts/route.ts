@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
         OR: [
           { followUpDate1: { gte: startDate, lte: endDate } },
           { followUpDate2: { gte: startDate, lte: endDate } },
+          { followUps: { some: { date: { gte: startDate, lte: endDate } } } },
         ],
       },
     ];
@@ -101,6 +102,9 @@ export async function GET(request: NextRequest) {
         id: true,
         followUpDate1: true,
         followUpDate2: true,
+        followUps: {
+          select: { date: true },
+        },
       },
     });
 
@@ -115,6 +119,12 @@ export async function GET(request: NextRequest) {
       if (lead.followUpDate2) {
         const d2 = toISTDateString(lead.followUpDate2);
         if (d2) dates.add(d2);
+      }
+      if (lead.followUps) {
+        for (const fu of lead.followUps) {
+          const df = toISTDateString(fu.date);
+          if (df) dates.add(df);
+        }
       }
       for (const d of dates) {
         counts[d] = (counts[d] || 0) + 1;

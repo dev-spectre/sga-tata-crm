@@ -6,12 +6,15 @@ import { classifyLead, type LeadCategory } from "@/lib/classification";
 import BranchConsultantPicker from "@/components/BranchConsultantPicker";
 import MultiSelectDropdown from "@/components/MultiSelectDropdown";
 import { ExternalUploadModal } from "@/components/ExternalUploadModal";
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
-
-
+import {
+  getLeadFollowUps,
+  getLeadFollowUpCount,
+  formatToDDMMYYYY,
+  formatAllFollowUpsForExcel,
+} from "@/lib/followup";
 
 interface Lead {
   id: number;
@@ -19,9 +22,12 @@ interface Lead {
   phone: string;
   city: string;
   adname?: string;
+  carModel?: string;
   branch?: string;
-  followUpDate1?: string;
-  followUpDate2?: string;
+  followUpDate1?: string | null;
+  followUpDate2?: string | null;
+  followUpCount?: number;
+  followUps?: Array<{ id?: number; step: number; date: string; createdAt?: string }>;
   remark: string | null;
   status: string;
   createdAt: string;
@@ -54,12 +60,20 @@ interface ConsultantItem {
   branch: string;
 }
 
+interface CarModelItem {
+  id: number;
+  name: string;
+  code?: string;
+  isActive: boolean;
+}
+
 export type { LeadCategory };
 
 interface Stats {
   total: number;
   notContacted?: number;
   pending?: number;
+  callback?: number;
   live?: number;
   lost?: number;
   open?: number;
@@ -85,9 +99,10 @@ interface Pagination {
 const formatStatusLabel = (st: string) => {
   if (st === 'not_contacted' || st === 'created') return 'Not Contacted';
   if (st === 'pending') return 'Contacted';
+  if (st === 'callback') return 'Callback';
   if (st === 'live' || st === 'closed_successful') return 'Completed';
   if (st === 'lost' || st === 'closed_unsuccessful') return 'Lost';
-  return st.replace('_', ' ');
+  return st.replace(/_/g, ' ');
 };
 
 const toISTDateString = (isoString?: string | null) => {
@@ -140,18 +155,45 @@ const getFirstDayOfMonthISTString = () => {
   return `${y}-${m}-01`;
 };
 
+const getFollowUpInputsState = (lead: Lead) => {
+  const followUps = getLeadFollowUps(lead);
+  const count = followUps.length;
+
+  if (count <= 1) {
+    return {
+      step1: 1,
+      label1: "1.",
+      val1: followUps[0] ? toISTDateString(followUps[0].date) : "",
+      step2: 2,
+      label2: "2.",
+      val2: "",
+    };
+  }
+
+  return {
+    step1: count,
+    label1: `${count}.`,
+    val1: toISTDateString(followUps[count - 1].date),
+    step2: count + 1,
+    label2: `${count + 1}.`,
+    val2: "",
+  };
+};
+
 const PAGE_SIZE = 20;
 
 // Persistent in-memory client caches (persists across page navigations in the same session)
 const globalDashboardPageCache: Record<string, { [page: number]: Lead[]; total?: number; stats?: Stats; timestamp?: number }> = {};
 let cachedBranchesList: string[] | null = null;
 let cachedConsultantsList: ConsultantItem[] | null = null;
+let cachedCarModelsList: CarModelItem[] | null = null;
 let cachedPerformanceStats: PerformanceStat[] | null = null;
 let cachedUsersList: { id: number; username: string; role: string }[] | null = null;
 let cachedMeUser: any = null;
 const CACHE_TTL_METADATA = 120000; // 2 minutes TTL
 let branchesFetchedAt = 0;
 let consultantsFetchedAt = 0;
+let carModelsFetchedAt = 0;
 let performanceFetchedAt = 0;
 let usersFetchedAt = 0;
 let meUserFetchedAt = 0;
@@ -172,6 +214,7 @@ export default function DashboardPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
+  const [carModelFilter, setCarModelFilter] = useState("");
   const [consultantFilter, setConsultantFilter] = useState("");
   const [testDriveFilter, setTestDriveFilter] = useState("");
   const [uploaderFilter, setUploaderFilter] = useState("");
@@ -196,7 +239,9 @@ export default function DashboardPage() {
 
   const [performanceStats, setPerformanceStats] = useState<PerformanceStat[]>(() => cachedPerformanceStats || []);
   const [consultantsList, setConsultantsList] = useState<ConsultantItem[]>(() => cachedConsultantsList || []);
+  const [carModelsList, setCarModelsList] = useState<CarModelItem[]>(() => cachedCarModelsList || []);
   const [usersList, setUsersList] = useState<{ id: number; username: string; role: string }[]>(() => cachedUsersList || []);
+  const [modelUpdatingId, setModelUpdatingId] = useState<number | null>(null);
 
   // Debounce search input by 350ms to avoid querying on every keystroke
   useEffect(() => {
@@ -223,6 +268,7 @@ export default function DashboardPage() {
         }
         if (typeof parsed.statusFilter === "string") setStatusFilter(parsed.statusFilter);
         if (typeof parsed.branchFilter === "string") setBranchFilter(parsed.branchFilter);
+        if (typeof parsed.carModelFilter === "string") setCarModelFilter(parsed.carModelFilter);
         if (typeof parsed.consultantFilter === "string") setConsultantFilter(parsed.consultantFilter);
         if (typeof parsed.testDriveFilter === "string") setTestDriveFilter(parsed.testDriveFilter);
         if (typeof parsed.uploaderFilter === "string") setUploaderFilter(parsed.uploaderFilter);
@@ -262,6 +308,24 @@ export default function DashboardPage() {
           branchesFetchedAt = Date.now();
           setApiBranches(branchList);
         }
+      }
+    } catch {
+      // fallback
+    }
+  }, []);
+
+  const fetchCarModelsList = useCallback(async (force = false) => {
+    if (!force && cachedCarModelsList && Date.now() - carModelsFetchedAt < CACHE_TTL_METADATA) {
+      setCarModelsList(cachedCarModelsList);
+      return;
+    }
+    try {
+      const res = await fetch("/api/models");
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.models)) {
+        cachedCarModelsList = data.models;
+        carModelsFetchedAt = Date.now();
+        setCarModelsList(data.models);
       }
     } catch {
       // fallback
@@ -325,6 +389,7 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchUsersList();
     fetchBranchesList();
+    fetchCarModelsList();
     fetchConsultantsList();
     fetchPerformanceStats();
 
@@ -384,7 +449,7 @@ export default function DashboardPage() {
       if (statusParam !== null) setStatusFilter(statusParam);
       if (uploaderParam !== null) setUploaderFilter(uploaderParam);
     }
-  }, [restoreUserFilters, fetchUsersList, fetchBranchesList, fetchConsultantsList, fetchPerformanceStats]);
+  }, [restoreUserFilters, fetchUsersList, fetchBranchesList, fetchCarModelsList, fetchConsultantsList, fetchPerformanceStats]);
 
   // Persist filter changes to localStorage per authenticated user
   useEffect(() => {
@@ -396,6 +461,7 @@ export default function DashboardPage() {
         search,
         statusFilter,
         branchFilter,
+        carModelFilter,
         consultantFilter,
         testDriveFilter,
         uploaderFilter,
@@ -411,7 +477,7 @@ export default function DashboardPage() {
     } catch (e) {
       console.error("Failed to save dashboard filters to localStorage:", e);
     }
-  }, [category, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, secondaryField, secondaryOrder, mounted, username]);
+  }, [category, search, statusFilter, branchFilter, carModelFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, secondaryField, secondaryOrder, mounted, username]);
 
   const [loading, setLoading] = useState(true);
   const [accessRestricted, setAccessRestricted] = useState(false);
@@ -556,6 +622,7 @@ export default function DashboardPage() {
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
       if (branchFilter) params.set("branch", branchFilter);
+      if (carModelFilter) params.set("carModel", carModelFilter);
       if (consultantFilter) params.set("consultant", consultantFilter);
       if (testDriveFilter) params.set("testDrive", testDriveFilter);
       if (uploaderFilter) {
@@ -761,7 +828,40 @@ export default function DashboardPage() {
 
         // 1. Immediately update dashboard stat cards with fresh counts
         if (data.stats) {
-          setStats(data.stats);
+          setStats(prev => ({
+            ...prev,
+            ...data.stats,
+            categories: data.stats.categories ? {
+              ...prev.categories,
+              ...data.stats.categories,
+            } : prev.categories,
+          }));
+
+          const params = new URLSearchParams();
+          params.set("primaryOrder", primaryOrder);
+          if (f.category && f.category !== "all") params.set("category", f.category);
+          if (f.search) params.set("search", f.search);
+          if (f.statusFilter) params.set("status", f.statusFilter);
+          if (f.branchFilter) params.set("branch", f.branchFilter);
+          if (f.consultantFilter) params.set("consultant", f.consultantFilter);
+          if (f.testDriveFilter) params.set("testDrive", f.testDriveFilter);
+          if (f.uploaderFilter) {
+            if (f.uploaderFilter === "system") params.set("source", "System");
+            else if (f.uploaderFilter === "external") params.set("source", "External Upload");
+            else if (f.uploaderFilter.startsWith("user:")) params.set("uploader", f.uploaderFilter.replace("user:", ""));
+          }
+          if (f.platformFilter) params.set("platform", f.platformFilter);
+          if (f.startDate) params.set("startDate", f.startDate);
+          if (f.endDate) params.set("endDate", f.endDate);
+          const filterKey = params.toString();
+
+          if (globalDashboardPageCache[filterKey]) {
+            globalDashboardPageCache[filterKey].stats = {
+              ...(globalDashboardPageCache[filterKey].stats || {}),
+              ...data.stats,
+              categories: data.stats.categories || globalDashboardPageCache[filterKey].stats?.categories,
+            };
+          }
         }
 
         // 2. Patch changed leads directly in-place without refetching from DB
@@ -824,26 +924,38 @@ export default function DashboardPage() {
   const fetchAllFilteredLeads = async () => {
     try {
       const params = new URLSearchParams();
-      params.set("page", "1");
-      params.set("limit", "10000");
       params.set("export", "true");
       params.set("skipStats", "true");
       params.set("skipActivities", "true");
       params.set("primaryOrder", primaryOrder);
-      params.set("secondaryField", secondaryField);
-      params.set("secondaryOrder", secondaryOrder);
+      if (secondaryField) {
+        params.set("secondaryField", secondaryField);
+        params.set("secondaryOrder", secondaryOrder);
+      }
       if (category && category !== "all") params.set("category", category);
       if (search) params.set("search", search);
+      if (statusFilter) params.set("status", statusFilter);
       if (branchFilter) params.set("branch", branchFilter);
+      if (carModelFilter) params.set("carModel", carModelFilter);
       if (consultantFilter) params.set("consultant", consultantFilter);
       if (testDriveFilter) params.set("testDrive", testDriveFilter);
+      if (uploaderFilter) {
+        if (uploaderFilter === 'system') {
+          params.set('source', 'System');
+        } else if (uploaderFilter === 'external') {
+          params.set('source', 'External Upload');
+        } else if (uploaderFilter.startsWith('user:')) {
+          params.set('uploader', uploaderFilter.replace('user:', ''));
+        }
+      }
+      if (platformFilter) params.set("platform", platformFilter);
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
 
-      const res = await fetch(`/api/leads?${params}`);
+      const res = await fetch(`/api/leads?${params.toString()}`);
       const data = await res.json();
       if (res.ok) {
-        return data.leads;
+        return data.leads || [];
       }
       return null;
     } catch {
@@ -1126,7 +1238,7 @@ export default function DashboardPage() {
 
   const categoryCounts = useMemo(() => {
     // If stats categories returned from server, prioritize them as they represent entire DB
-    if (stats?.categories && stats.categories.all > 0) {
+    if (stats?.categories) {
       return {
         valid: stats.categories.valid ?? 0,
         invalid: stats.categories.invalid ?? 0,
@@ -1156,19 +1268,22 @@ export default function DashboardPage() {
       valid: vCount,
       invalid: iCount,
       outside: oCount,
-      all: leads.length,
+      all: pagination.total > PAGE_SIZE ? pagination.total : leads.length,
     };
-  }, [stats?.categories, leads, branches]);
+  }, [stats?.categories, leads, branches, pagination.total]);
 
   const displayedLeads = useMemo(() => {
     let result = leads;
     if (branchFilter) {
-      const bFilterClean = branchFilter.toLowerCase().trim();
-      result = result.filter(l => {
-        if (!l.branch) return false;
-        const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
-        return leadBranches.includes(bFilterClean) || l.branch.toLowerCase().trim() === bFilterClean;
-      });
+      const branchTokens = branchFilter.split(',').map(b => b.toLowerCase().trim()).filter(Boolean);
+      if (branchTokens.length > 0) {
+        result = result.filter(l => {
+          if (!l.branch) return false;
+          const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
+          const cleanLeadBranch = l.branch.toLowerCase().trim();
+          return branchTokens.some(bt => leadBranches.includes(bt) || cleanLeadBranch === bt || cleanLeadBranch.includes(bt));
+        });
+      }
     }
     if (!result || result.length === 0) return result;
 
@@ -1185,6 +1300,13 @@ export default function DashboardPage() {
       const todayStr = getTodayISTString();
       result = result.filter(l => {
         if (classifyLead(l, branchSet) !== "valid") return false;
+        const fus = getLeadFollowUps(l);
+        if (fus.length > 0) {
+          return fus.some(f => {
+            const dt = toISTDateString(f.date);
+            return dt && dt <= todayStr;
+          });
+        }
         const f1 = toISTDateString(l.followUpDate1);
         const f2 = toISTDateString(l.followUpDate2);
         return Boolean((f1 && f1 <= todayStr) || (f2 && f2 <= todayStr));
@@ -1240,12 +1362,129 @@ export default function DashboardPage() {
       return;
     }
 
-    const exportLeads = allLeads.filter((l: Lead) => {
-      if (!branchFilter) return true;
-      if (!l.branch) return false;
-      const bFilterClean = branchFilter.toLowerCase().trim();
-      const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
-      return leadBranches.includes(bFilterClean) || l.branch.toLowerCase().trim() === bFilterClean;
+    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
+
+    // Filter leads strictly according to all active frontend filters
+    let exportLeads: Lead[] = allLeads;
+
+    // 1. Category Filter
+    if (category === "valid") {
+      exportLeads = exportLeads.filter(l => classifyLead(l, branchSet) === "valid");
+    } else if (category === "invalid") {
+      exportLeads = exportLeads.filter(l => classifyLead(l, branchSet) === "invalid");
+    } else if (category === "outside") {
+      exportLeads = exportLeads.filter(l => classifyLead(l, branchSet) === "outside");
+    } else if (category === "priority") {
+      const todayStr = getTodayISTString();
+      exportLeads = exportLeads.filter(l => {
+        if (classifyLead(l, branchSet) !== "valid") return false;
+        const fus = getLeadFollowUps(l);
+        if (fus.length > 0) {
+          return fus.some(f => {
+            const dt = toISTDateString(f.date);
+            return dt && dt <= todayStr;
+          });
+        }
+        const f1 = toISTDateString(l.followUpDate1);
+        const f2 = toISTDateString(l.followUpDate2);
+        return Boolean((f1 && f1 <= todayStr) || (f2 && f2 <= todayStr));
+      });
+    }
+
+    // 2. Status Filter
+    if (statusFilter) {
+      const statusTokens = statusFilter.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      exportLeads = exportLeads.filter(l => {
+        const leadStatus = (l.status || '').toLowerCase();
+        return statusTokens.some(st => {
+          if (st === 'not_contacted' || st === 'created') return leadStatus === 'not_contacted' || leadStatus === 'created';
+          if (st === 'pending') return leadStatus === 'pending';
+          if (st === 'callback') return leadStatus === 'callback';
+          if (st === 'live' || st === 'closed_successful') return leadStatus === 'live' || leadStatus === 'closed_successful';
+          if (st === 'lost' || st === 'closed_unsuccessful') return leadStatus === 'lost' || leadStatus === 'closed_unsuccessful';
+          return leadStatus === st;
+        });
+      });
+    }
+
+    // 3. Branch Filter
+    if (branchFilter) {
+      const branchTokens = branchFilter.split(',').map(b => b.toLowerCase().trim()).filter(Boolean);
+      if (branchTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          if (!l.branch) return false;
+          const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
+          const cleanLeadBranch = l.branch.toLowerCase().trim();
+          return branchTokens.some(bt => leadBranches.includes(bt) || cleanLeadBranch === bt || cleanLeadBranch.includes(bt));
+        });
+      }
+    }
+
+    // 4. Car Model Filter
+    if (carModelFilter) {
+      const modelTokens = carModelFilter.split(',').map(m => m.trim().toLowerCase()).filter(Boolean);
+      if (modelTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          const m = (l.carModel || '').toLowerCase();
+          return modelTokens.some(mt => m.includes(mt));
+        });
+      }
+    }
+
+    // 5. Consultant Filter
+    if (consultantFilter) {
+      const cTokens = consultantFilter.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+      if (cTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          const ac = (l.assignedConsultant || '').toLowerCase().trim();
+          return cTokens.some(ct => {
+            if (ct === 'unassigned') return !ac;
+            return ac === ct;
+          });
+        });
+      }
+    }
+
+    // 6. Test Drive Filter
+    if (testDriveFilter) {
+      const tdTokens = testDriveFilter.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+      if (tdTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          const td = (l.testDrive || '').toLowerCase().trim();
+          return tdTokens.some(t => {
+            if (t === 'not scheduled') return !td || td === 'not scheduled' || td === 'no';
+            if (t === 'scheduled') return td === 'scheduled' || td === 'yes';
+            return td === t;
+          });
+        });
+      }
+    }
+
+    // Sort to match table order
+    exportLeads.sort((a, b) => {
+      const dayA = toISTDateString(a.createdAt);
+      const dayB = toISTDateString(b.createdAt);
+
+      if (dayA !== dayB) {
+        return primaryOrder === "desc" ? dayB.localeCompare(dayA) : dayA.localeCompare(dayB);
+      }
+
+      if (secondaryField) {
+        const valA: any = a[secondaryField as keyof Lead];
+        const valB: any = b[secondaryField as keyof Lead];
+
+        if (secondaryField === "followUpDate1" || secondaryField === "followUpDate2" || secondaryField === "createdAt") {
+          const tA = valA ? new Date(valA).getTime() : 0;
+          const tB = valB ? new Date(valB).getTime() : 0;
+          return secondaryOrder === "asc" ? tA - tB : tB - tA;
+        }
+
+        const strA = (valA || "").toString().toLowerCase();
+        const strB = (valB || "").toString().toLowerCase();
+        return secondaryOrder === "asc" ? strA.localeCompare(strB) : strB.localeCompare(strA);
+      }
+
+      return 0;
     });
 
     if (exportLeads.length === 0) {
@@ -1254,7 +1493,6 @@ export default function DashboardPage() {
       return;
     }
 
-    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
     const exportData = exportLeads.map((l: Lead) => {
       const classification = classifyLead(l, branchSet);
       const catLabel = classification === 'valid' ? 'Valid (Tamil Nadu)' : classification === 'invalid' ? 'Invalid' : 'Outside TN';
@@ -1264,25 +1502,64 @@ export default function DashboardPage() {
         Category: catLabel,
         City: l.city || "-",
         "Ad Name": l.adname || "-",
+        "Car Model": l.carModel || "-",
         Branch: l.branch ? parseBranches(l.branch).join(", ") : "-",
-        "Follow Up 1": toISTDateString(l.followUpDate1) || "-",
-        "Follow Up 2": toISTDateString(l.followUpDate2) || "-",
-        "Created At": formatDate(l.createdAt),
+        "Assigned Consultant": l.assignedConsultant || "-",
+        "Test Drive": l.testDrive || "-",
+        "Follow Ups": formatAllFollowUpsForExcel(l),
+        "Created At": formatToDDMMYYYY(l.createdAt),
         Status: formatStatusLabel(l.status),
         Remark: l.remark || "-"
       };
     });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
+
+    // Ensure Excel wraps multi-line follow-up text and remarks properly
+    if (worksheet['!ref']) {
+      const range = XLSX.utils.decode_range(worksheet['!ref']);
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = worksheet[cellAddress];
+          if (!cell) continue;
+
+          if (R === 0) {
+            cell.s = {
+              font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+              fill: { fgColor: { rgb: "0072BC" } },
+              alignment: { vertical: "center", horizontal: "center", wrapText: true },
+            };
+          } else {
+            cell.s = {
+              alignment: {
+                vertical: "top",
+                wrapText: true,
+              },
+            };
+          }
+        }
+      }
+    }
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Leads");
 
-    const cols = Object.keys(exportData[0]).map(() => ({ wch: 15 }));
+    const cols = Object.keys(exportData[0]).map((key) => {
+      if (key === "Follow Ups") return { wch: 25 };
+      if (key === "Created At") return { wch: 18 };
+      if (key === "Remark") return { wch: 32 };
+      if (key === "Name" || key === "Ad Name") return { wch: 22 };
+      if (key === "Branch") return { wch: 20 };
+      if (key === "Assigned Consultant") return { wch: 20 };
+      if (key === "Test Drive") return { wch: 16 };
+      return { wch: 15 };
+    });
     worksheet['!cols'] = cols;
 
     XLSX.writeFile(workbook, "SGA_Tata_Leads.xlsx");
     setExportLoading(false);
-    showToast("Excel exported successfully");
+    showToast(`Exported ${exportLeads.length} leads successfully`);
   };
 
   const handleExportPDF = async () => {
@@ -1294,12 +1571,128 @@ export default function DashboardPage() {
       return;
     }
 
-    const exportLeads = allLeads.filter((l: Lead) => {
-      if (!branchFilter) return true;
-      if (!l.branch) return false;
-      const bFilterClean = branchFilter.toLowerCase().trim();
-      const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
-      return leadBranches.includes(bFilterClean) || l.branch.toLowerCase().trim() === bFilterClean;
+    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
+
+    let exportLeads: Lead[] = allLeads;
+
+    // 1. Category Filter
+    if (category === "valid") {
+      exportLeads = exportLeads.filter(l => classifyLead(l, branchSet) === "valid");
+    } else if (category === "invalid") {
+      exportLeads = exportLeads.filter(l => classifyLead(l, branchSet) === "invalid");
+    } else if (category === "outside") {
+      exportLeads = exportLeads.filter(l => classifyLead(l, branchSet) === "outside");
+    } else if (category === "priority") {
+      const todayStr = getTodayISTString();
+      exportLeads = exportLeads.filter(l => {
+        if (classifyLead(l, branchSet) !== "valid") return false;
+        const fus = getLeadFollowUps(l);
+        if (fus.length > 0) {
+          return fus.some(f => {
+            const dt = toISTDateString(f.date);
+            return dt && dt <= todayStr;
+          });
+        }
+        const f1 = toISTDateString(l.followUpDate1);
+        const f2 = toISTDateString(l.followUpDate2);
+        return Boolean((f1 && f1 <= todayStr) || (f2 && f2 <= todayStr));
+      });
+    }
+
+    // 2. Status Filter
+    if (statusFilter) {
+      const statusTokens = statusFilter.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      exportLeads = exportLeads.filter(l => {
+        const leadStatus = (l.status || '').toLowerCase();
+        return statusTokens.some(st => {
+          if (st === 'not_contacted' || st === 'created') return leadStatus === 'not_contacted' || leadStatus === 'created';
+          if (st === 'pending') return leadStatus === 'pending';
+          if (st === 'callback') return leadStatus === 'callback';
+          if (st === 'live' || st === 'closed_successful') return leadStatus === 'live' || leadStatus === 'closed_successful';
+          if (st === 'lost' || st === 'closed_unsuccessful') return leadStatus === 'lost' || leadStatus === 'closed_unsuccessful';
+          return leadStatus === st;
+        });
+      });
+    }
+
+    // 3. Branch Filter
+    if (branchFilter) {
+      const branchTokens = branchFilter.split(',').map(b => b.toLowerCase().trim()).filter(Boolean);
+      if (branchTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          if (!l.branch) return false;
+          const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
+          const cleanLeadBranch = l.branch.toLowerCase().trim();
+          return branchTokens.some(bt => leadBranches.includes(bt) || cleanLeadBranch === bt || cleanLeadBranch.includes(bt));
+        });
+      }
+    }
+
+    // 4. Car Model Filter
+    if (carModelFilter) {
+      const modelTokens = carModelFilter.split(',').map(m => m.trim().toLowerCase()).filter(Boolean);
+      if (modelTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          const m = (l.carModel || '').toLowerCase();
+          return modelTokens.some(mt => m.includes(mt));
+        });
+      }
+    }
+
+    // 5. Consultant Filter
+    if (consultantFilter) {
+      const cTokens = consultantFilter.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+      if (cTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          const ac = (l.assignedConsultant || '').toLowerCase().trim();
+          return cTokens.some(ct => {
+            if (ct === 'unassigned') return !ac;
+            return ac === ct;
+          });
+        });
+      }
+    }
+
+    // 6. Test Drive Filter
+    if (testDriveFilter) {
+      const tdTokens = testDriveFilter.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+      if (tdTokens.length > 0) {
+        exportLeads = exportLeads.filter(l => {
+          const td = (l.testDrive || '').toLowerCase().trim();
+          return tdTokens.some(t => {
+            if (t === 'not scheduled') return !td || td === 'not scheduled' || td === 'no';
+            if (t === 'scheduled') return td === 'scheduled' || td === 'yes';
+            return td === t;
+          });
+        });
+      }
+    }
+
+    // Sort to match table order
+    exportLeads.sort((a, b) => {
+      const dayA = toISTDateString(a.createdAt);
+      const dayB = toISTDateString(b.createdAt);
+
+      if (dayA !== dayB) {
+        return primaryOrder === "desc" ? dayB.localeCompare(dayA) : dayA.localeCompare(dayB);
+      }
+
+      if (secondaryField) {
+        const valA: any = a[secondaryField as keyof Lead];
+        const valB: any = b[secondaryField as keyof Lead];
+
+        if (secondaryField === "followUpDate1" || secondaryField === "followUpDate2" || secondaryField === "createdAt") {
+          const tA = valA ? new Date(valA).getTime() : 0;
+          const tB = valB ? new Date(valB).getTime() : 0;
+          return secondaryOrder === "asc" ? tA - tB : tB - tA;
+        }
+
+        const strA = (valA || "").toString().toLowerCase();
+        const strB = (valB || "").toString().toLowerCase();
+        return secondaryOrder === "asc" ? strA.localeCompare(strB) : strB.localeCompare(strA);
+      }
+
+      return 0;
     });
 
     if (exportLeads.length === 0) {
@@ -1316,7 +1709,7 @@ export default function DashboardPage() {
     doc.setTextColor(100);
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
 
-    const tableColumn = ["Name", "Phone", "City", "Ad Name", "Branch", "Follow Up 1", "Follow Up 2", "Status"];
+    const tableColumn = ["Name", "Phone", "City", "Ad Name", "Car Model", "Branch", "Follow Ups", "Status", "Created At"];
     const tableRows: (string | number)[][] = [];
 
     exportLeads.forEach((l: Lead) => {
@@ -1325,11 +1718,11 @@ export default function DashboardPage() {
         l.phone,
         l.city || "-",
         l.adname || "-",
+        l.carModel || "-",
         l.branch ? parseBranches(l.branch).join(", ") : "-",
-        toISTDateString(l.followUpDate1) || "-",
-        toISTDateString(l.followUpDate2) || "-",
+        formatAllFollowUpsForExcel(l).replace(/\n/g, ', '),
         formatStatusLabel(l.status),
-        new Date(l.createdAt).toLocaleDateString()
+        formatToDDMMYYYY(l.createdAt)
       ]);
     });
 
@@ -1343,7 +1736,7 @@ export default function DashboardPage() {
 
     doc.save("SGA_Tata_Leads.pdf");
     setExportLoading(false);
-    showToast("PDF exported successfully");
+    showToast(`Exported ${exportLeads.length} leads to PDF successfully`);
   };
 
   const handleSync = async () => {
@@ -1376,24 +1769,88 @@ export default function DashboardPage() {
     }
   };
 
-  const handleFollowUpUpdate = async (lead: Lead, field: 'followUpDate1' | 'followUpDate2', dateStr: string) => {
+  const handleFollowUpChange = async (
+    lead: Lead,
+    isSecondInput: boolean,
+    dateStr: string,
+    currentStep: number
+  ) => {
+    if (!dateStr && isSecondInput) return;
+
     const prevLeads = [...leads];
     startUpdating();
     activeFetchIdRef.current++;
 
-    patchLeadInCache({ id: lead.id, [field]: dateStr || null });
+    const prevFollowUps = getLeadFollowUps(lead);
+    const dateWithTime = dateStr ? `${dateStr}T12:00:00+05:30` : '';
+
+    let updatedFollowUps = [...prevFollowUps];
+    let newFollowUpCount = lead.followUpCount || prevFollowUps.length;
+    let optimisticPatch: Partial<Lead> & { id: number } = { id: lead.id };
+
+    if (!dateStr) {
+      // CLEAR action on existing step:
+      const remainingFollowUps = prevFollowUps
+        .filter(f => f.step !== currentStep)
+        .map((f, idx) => ({ ...f, step: idx + 1 }));
+      newFollowUpCount = remainingFollowUps.length;
+      const newF1 = newFollowUpCount > 0 ? remainingFollowUps[0].date : null;
+      const newF2 = newFollowUpCount > 1 ? remainingFollowUps[newFollowUpCount - 1].date : null;
+
+      optimisticPatch = {
+        id: lead.id,
+        followUps: remainingFollowUps,
+        followUpCount: newFollowUpCount,
+        followUpDate1: newF1,
+        followUpDate2: newF2,
+      };
+    } else if (isSecondInput) {
+      // Adding next step follow-up
+      const targetStep = currentStep;
+      updatedFollowUps = [...prevFollowUps, { step: targetStep, date: dateWithTime }];
+      newFollowUpCount = targetStep;
+      optimisticPatch = {
+        id: lead.id,
+        followUps: updatedFollowUps,
+        followUpCount: newFollowUpCount,
+        followUpDate2: dateWithTime,
+        ...(!lead.followUpDate1 ? { followUpDate1: dateWithTime } : {}),
+      };
+    } else {
+      // Editing existing follow-up at currentStep
+      if (updatedFollowUps.some(f => f.step === currentStep)) {
+        updatedFollowUps = updatedFollowUps.map(f => f.step === currentStep ? { ...f, date: dateWithTime } : f);
+      } else {
+        updatedFollowUps = [...updatedFollowUps, { step: currentStep, date: dateWithTime }];
+      }
+      optimisticPatch = {
+        id: lead.id,
+        followUps: updatedFollowUps,
+        ...(currentStep === 1 ? { followUpDate1: dateWithTime || undefined } : {}),
+        ...(currentStep === 2 ? { followUpDate2: dateWithTime || undefined } : {}),
+      };
+    }
+
+    patchLeadInCache(optimisticPatch);
 
     try {
+      const payload: any = isSecondInput
+        ? { newFollowUpDate: dateStr, step: currentStep }
+        : { updateFollowUp: { step: currentStep, date: dateStr } };
+
       const res = await fetch(`/api/leads/${lead.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: dateStr || null }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        showToast("Follow-up date updated");
+        showToast(!dateStr ? `Follow-up #${currentStep} cleared` : `Follow-up #${currentStep} updated`);
         if (data.lead) {
           patchLeadInCache(data.lead);
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("crm-leads-updated"));
         }
       } else {
         showToast(data.error || data.details || "Failed to update date", "error");
@@ -1407,10 +1864,19 @@ export default function DashboardPage() {
     }
   };
 
+  const handleFollowUpUpdate = async (lead: Lead, field: 'followUpDate1' | 'followUpDate2', dateStr: string) => {
+    const inputs = getFollowUpInputsState(lead);
+    if (field === 'followUpDate2') {
+      return handleFollowUpChange(lead, true, dateStr, inputs.step2);
+    } else {
+      return handleFollowUpChange(lead, false, dateStr, inputs.step1);
+    }
+  };
+
   const handleStatusChange = async (lead: Lead, newStatus: string) => {
     const oldStatus = lead.status;
-    const normOld = (oldStatus === 'created' ? 'not_contacted' : oldStatus === 'closed_successful' ? 'live' : oldStatus === 'closed_unsuccessful' ? 'lost' : oldStatus) as 'not_contacted' | 'pending' | 'live' | 'lost';
-    const normNew = (newStatus === 'created' ? 'not_contacted' : newStatus === 'closed_successful' ? 'live' : newStatus === 'closed_unsuccessful' ? 'lost' : newStatus) as 'not_contacted' | 'pending' | 'live' | 'lost';
+    const normOld = (oldStatus === 'created' ? 'not_contacted' : oldStatus === 'closed_successful' ? 'live' : oldStatus === 'closed_unsuccessful' ? 'lost' : oldStatus) as 'not_contacted' | 'pending' | 'callback' | 'live' | 'lost';
+    const normNew = (newStatus === 'created' ? 'not_contacted' : newStatus === 'closed_successful' ? 'live' : newStatus === 'closed_unsuccessful' ? 'lost' : newStatus) as 'not_contacted' | 'pending' | 'callback' | 'live' | 'lost';
 
     if (normOld === normNew) return;
 
@@ -1430,11 +1896,13 @@ export default function DashboardPage() {
       const updated = { ...prev };
       if (normOld === 'not_contacted') updated.notContacted = Math.max(0, (updated.notContacted ?? 0) - 1);
       if (normOld === 'pending') updated.pending = Math.max(0, (updated.pending ?? 0) - 1);
+      if (normOld === 'callback') updated.callback = Math.max(0, (updated.callback ?? 0) - 1);
       if (normOld === 'live') updated.live = Math.max(0, (updated.live ?? 0) - 1);
       if (normOld === 'lost') updated.lost = Math.max(0, (updated.lost ?? 0) - 1);
 
       if (normNew === 'not_contacted') updated.notContacted = (updated.notContacted ?? 0) + 1;
       if (normNew === 'pending') updated.pending = (updated.pending ?? 0) + 1;
+      if (normNew === 'callback') updated.callback = (updated.callback ?? 0) + 1;
       if (normNew === 'live') updated.live = (updated.live ?? 0) + 1;
       if (normNew === 'lost') updated.lost = (updated.lost ?? 0) + 1;
 
@@ -1640,6 +2108,47 @@ export default function DashboardPage() {
     }
   };
 
+  const handleCarModelChange = async (lead: Lead, newModel: string) => {
+    const currentModel = lead.carModel || "";
+    if (currentModel === newModel) return;
+
+    const prevLeads = [...leads];
+    startUpdating();
+    activeFetchIdRef.current++;
+    setModelUpdatingId(lead.id);
+
+    patchLeadInCache({
+      id: lead.id,
+      carModel: newModel,
+    });
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          carModel: newModel,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || data.details || "Failed to update car model", "error");
+        setLeads(prevLeads.map(l => (l.id === lead.id && data.handledBy) ? { ...l, handledBy: data.handledBy } : l));
+      } else {
+        showToast(`Model updated to ${newModel || "None"}`);
+        if (data.lead) {
+          patchLeadInCache(data.lead);
+        }
+      }
+    } catch (err: any) {
+      showToast(`Failed to update car model: ${err?.message || 'Network error'}`, "error");
+      setLeads(prevLeads);
+    } finally {
+      setModelUpdatingId(null);
+      stopUpdating();
+    }
+  };
+
   const handleDeleteLead = async () => {
     if (!deleteModal) return;
     setDeleteLoading(true);
@@ -1652,14 +2161,25 @@ export default function DashboardPage() {
 
     // Optimistically remove lead from state and cache
     removeLeadFromCache(targetLead.id);
-    const targetStatus = (targetLead.status === 'created' ? 'not_contacted' : targetLead.status === 'closed_successful' ? 'live' : targetLead.status === 'closed_unsuccessful' ? 'lost' : targetLead.status) as 'not_contacted' | 'pending' | 'live' | 'lost';
+    const targetStatus = (targetLead.status === 'created' ? 'not_contacted' : targetLead.status === 'closed_successful' ? 'live' : targetLead.status === 'closed_unsuccessful' ? 'lost' : targetLead.status) as 'not_contacted' | 'pending' | 'callback' | 'live' | 'lost';
 
     setStats(prev => {
       const updated = { ...prev, total: Math.max(0, (prev.total ?? 0) - 1) };
       if (targetStatus === 'not_contacted') updated.notContacted = Math.max(0, (updated.notContacted ?? 0) - 1);
       if (targetStatus === 'pending') updated.pending = Math.max(0, (updated.pending ?? 0) - 1);
+      if (targetStatus === 'callback') updated.callback = Math.max(0, (updated.callback ?? 0) - 1);
       if (targetStatus === 'live') updated.live = Math.max(0, (updated.live ?? 0) - 1);
       if (targetStatus === 'lost') updated.lost = Math.max(0, (updated.lost ?? 0) - 1);
+      if (prev.categories) {
+        const cat = classifyLead(targetLead, new Set(branches.map(b => b.toLowerCase().trim())));
+        updated.categories = {
+          ...prev.categories,
+          all: Math.max(0, (prev.categories.all ?? 0) - 1),
+          valid: cat === 'valid' ? Math.max(0, (prev.categories.valid ?? 0) - 1) : prev.categories.valid,
+          invalid: cat === 'invalid' ? Math.max(0, (prev.categories.invalid ?? 0) - 1) : prev.categories.invalid,
+          outside: cat === 'outside' ? Math.max(0, (prev.categories.outside ?? 0) - 1) : prev.categories.outside,
+        };
+      }
       return updated;
     });
 
@@ -1704,10 +2224,14 @@ export default function DashboardPage() {
     try {
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return dateStr;
-      return d.toLocaleDateString("en-IN", {
-        day: "2-digit", month: "short", year: "numeric",
-        hour: "2-digit", minute: "2-digit",
+      const ddmmyyyy = formatToDDMMYYYY(d);
+      const timePart = d.toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
       });
+      return `${ddmmyyyy} ${timePart}`;
     } catch {
       return dateStr;
     }
@@ -1787,14 +2311,35 @@ export default function DashboardPage() {
             )}
           </button>
 
-          <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
-            {syncing ? <><span className="spinner" /> Syncing...</> : (
+          <button
+            className="btn btn-primary"
+            onClick={handleSync}
+            disabled={syncing}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+            }}
+          >
+            {syncing ? (
               <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}>
+                <span className="spinner" />
+                <span>Syncing...</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  style={{ width: 18, height: 18, flexShrink: 0, display: "block" }}
+                >
                   <path d="M23 4v6h-6M1 20v-6h6" />
                   <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                 </svg>
-                Sync from Sheet
+                <span>Sync from Sheet</span>
               </>
             )}
           </button>
@@ -1879,6 +2424,31 @@ export default function DashboardPage() {
                       borderRadius: "6px",
                       background: "rgba(234, 179, 8, 0.15)",
                       color: "#ca8a04",
+                      fontSize: "12px"
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: 14, height: 14 }}>
+                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                    </svg>
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">Callback</div>
+              <div className="stat-value" style={{ display: "flex", alignItems: "center", gap: 8, color: "#7c3aed" }}>
+                <span>{stats.callback ?? 0}</span>
+                {isFiltered && (
+                  <span
+                    title="Filtered count active"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "3px 6px",
+                      borderRadius: "6px",
+                      background: "rgba(139, 92, 246, 0.15)",
+                      color: "#7c3aed",
                       fontSize: "12px"
                     }}
                   >
@@ -2027,6 +2597,7 @@ export default function DashboardPage() {
             options={[
               { label: "Not Contacted", value: "not_contacted" },
               { label: "Contacted", value: "pending" },
+              { label: "Callback", value: "callback" },
               { label: "Completed", value: "live" },
               { label: "Lost", value: "lost" },
             ]}
@@ -2081,6 +2652,18 @@ export default function DashboardPage() {
               }}
             />
           )}
+
+          {/* Car Model Multi-Select Filter */}
+          <MultiSelectDropdown
+            label="Car Model"
+            allLabel="All Models"
+            value={carModelFilter}
+            options={carModelsList.map((m) => ({ label: m.name, value: m.name }))}
+            onChange={(newVal) => {
+              setCarModelFilter(newVal);
+              setPagination((p) => ({ ...p, page: 1 }));
+            }}
+          />
 
           {/* Test Drive Multi-Select Filter */}
           <MultiSelectDropdown
@@ -2169,12 +2752,12 @@ export default function DashboardPage() {
               <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
             {startDate || endDate
-              ? (startDate === endDate ? startDate : `${startDate || "Start"} → ${endDate || "End"}`)
+              ? (startDate === endDate ? formatToDDMMYYYY(startDate) : `${formatToDDMMYYYY(startDate) || "Start"} → ${formatToDDMMYYYY(endDate) || "End"}`)
               : "Date Range"}
           </button>
 
           {/* Clear Date Filter Chip */}
-          {(searchInput || search || statusFilter || branchFilter || consultantFilter || testDriveFilter || uploaderFilter || platformFilter || startDate || endDate) && (
+          {(searchInput || search || statusFilter || branchFilter || carModelFilter || consultantFilter || testDriveFilter || uploaderFilter || platformFilter || startDate || endDate) && (
             <button
               className="btn btn-ghost"
               onClick={() => {
@@ -2182,6 +2765,7 @@ export default function DashboardPage() {
                 setSearch("");
                 setStatusFilter("");
                 setBranchFilter("");
+                setCarModelFilter("");
                 setConsultantFilter("");
                 setTestDriveFilter("");
                 setUploaderFilter("");
@@ -2317,6 +2901,9 @@ export default function DashboardPage() {
                     <th onClick={() => handleHeaderClick("adname")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Ad Name">
                       Ad Name {secondaryField === "adname" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
                     </th>
+                    <th onClick={() => handleHeaderClick("carModel")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Car Model">
+                      Model {secondaryField === "carModel" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
+                    </th>
                     <th onClick={() => handleHeaderClick("branch")} style={{ cursor: "pointer", userSelect: "none" }} title="Click to sort by Branch">
                       Branch {secondaryField === "branch" ? (secondaryOrder === "asc" ? "↑" : "↓") : ""}
                     </th>
@@ -2339,7 +2926,7 @@ export default function DashboardPage() {
                 <tbody>
                   {displayedLeads.length === 0 ? (
                     <tr>
-                      <td colSpan={13} style={{ textAlign: "center", padding: "40px" }}>
+                      <td colSpan={14} style={{ textAlign: "center", padding: "40px" }}>
                         No leads found.
                       </td>
                     </tr>
@@ -2411,6 +2998,31 @@ export default function DashboardPage() {
                           </td>
                           <td>
                             {(() => {
+                              const cleanLeadModel = (lead.carModel || '').trim();
+                              return (
+                                <select
+                                  className="branch-select"
+                                  style={{ minWidth: "110px", width: "100%" }}
+                                  value={cleanLeadModel}
+                                  onChange={(e) => handleCarModelChange(lead, e.target.value)}
+                                  disabled={isLeadLocked || modelUpdatingId === lead.id}
+                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Model: ${cleanLeadModel || "None"}`}
+                                >
+                                  <option value="">Select Model</option>
+                                  {carModelsList.map((m) => (
+                                    <option key={m.id} value={m.name}>
+                                      {m.name}
+                                    </option>
+                                  ))}
+                                  {cleanLeadModel && !carModelsList.some(m => m.name.toLowerCase() === cleanLeadModel.toLowerCase()) && (
+                                    <option value={cleanLeadModel}>{cleanLeadModel}</option>
+                                  )}
+                                </select>
+                              );
+                            })()}
+                          </td>
+                          <td>
+                            {(() => {
                               const cleanLeadBranch = (lead.branch || '').trim();
                               const matchedBranch = branches.find(
                                 (b) => b.toLowerCase().trim() === cleanLeadBranch.toLowerCase()
@@ -2440,32 +3052,71 @@ export default function DashboardPage() {
                             })()}
                           </td>
                           <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <span style={{ fontSize: "12px", color: "var(--text-secondary)", width: "12px" }}>1.</span>
-                                <input
-                                  type="date"
-                                  value={toISTDateString(lead.followUpDate1)}
-                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up 1: ${toISTDateString(lead.followUpDate1) || 'No date set'}`}
-                                  onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate1', e.target.value)}
-                                  disabled={isLeadLocked}
-                                  className="status-select"
-                                  style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
-                                />
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <span style={{ fontSize: "12px", color: "var(--text-secondary)", width: "12px" }}>2.</span>
-                                <input
-                                  type="date"
-                                  value={toISTDateString(lead.followUpDate2)}
-                                  title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up 2: ${toISTDateString(lead.followUpDate2) || 'No date set'}`}
-                                  onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate2', e.target.value)}
-                                  disabled={isLeadLocked}
-                                  className="status-select"
-                                  style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
-                                />
-                              </div>
-                            </div>
+                            {(() => {
+                              const fu = getFollowUpInputsState(lead);
+                              const totalCount = getLeadFollowUpCount(lead);
+                              const allFollowUps = getLeadFollowUps(lead);
+                              const historyTooltip = allFollowUps.length > 0
+                                ? `Follow-ups (${allFollowUps.length}):\n` + allFollowUps.map((f, i) => `#${f.step || i + 1}: ${formatToDDMMYYYY(f.date)}`).join('\n')
+                                : '';
+                              return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }} title={historyTooltip || undefined}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span style={{ fontSize: "12px", color: "var(--text-secondary)", minWidth: "16px", fontWeight: 600 }}>{fu.label1}</span>
+                                    <input
+                                      type="date"
+                                      value={fu.val1}
+                                      title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Follow Up ${fu.label1} ${formatToDDMMYYYY(fu.val1) || 'No date set'}`}
+                                      onChange={(e) => handleFollowUpChange(lead, false, e.target.value, fu.step1)}
+                                      disabled={isLeadLocked}
+                                      className="status-select"
+                                      style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
+                                    />
+                                    {fu.val1 && !isLeadLocked && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFollowUpChange(lead, false, "", fu.step1)}
+                                        title={`Clear follow-up ${fu.label1}`}
+                                        style={{
+                                          background: "none",
+                                          border: "none",
+                                          color: "var(--text-secondary)",
+                                          cursor: "pointer",
+                                          padding: "0 2px",
+                                          fontSize: "16px",
+                                          lineHeight: 1,
+                                          fontWeight: "bold",
+                                          opacity: 0.7,
+                                          transition: "opacity 0.15s, color 0.15s"
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.color = "#ef4444";
+                                          e.currentTarget.style.opacity = "1";
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.color = "var(--text-secondary)";
+                                          e.currentTarget.style.opacity = "0.7";
+                                        }}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span style={{ fontSize: "12px", color: "var(--text-secondary)", minWidth: "16px", fontWeight: 600 }}>{fu.label2}</span>
+                                    <input
+                                      type="date"
+                                      value={fu.val2}
+                                      title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Add Follow Up ${fu.label2} (Current total: ${totalCount})`}
+                                      onChange={(e) => handleFollowUpChange(lead, true, e.target.value, fu.step2)}
+                                      disabled={isLeadLocked}
+                                      className="status-select"
+                                      style={{ border: "1px solid var(--border)", background: "transparent", cursor: isLeadLocked ? "not-allowed" : "pointer", opacity: isLeadLocked ? 0.6 : 1, padding: "2px 6px", fontSize: "13px" }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td style={{ cursor: "pointer" }} title={getFullDateTooltip(lead.createdAt)}>
                             {formatDate(lead.createdAt)}
@@ -2474,7 +3125,8 @@ export default function DashboardPage() {
                             <select
                               className={`status-select ${(lead.status === "not_contacted" || lead.status === "created") ? "status-not_contacted" :
                                 lead.status === "pending" ? "status-pending" :
-                                  (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
+                                  lead.status === "callback" ? "status-callback" :
+                                    (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
                                 }`}
                               value={lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status}
                               onChange={(e) => handleStatusChange(lead, e.target.value)}
@@ -2484,6 +3136,7 @@ export default function DashboardPage() {
                             >
                               <option value="not_contacted">Not Contacted</option>
                               <option value="pending">Contacted</option>
+                              <option value="callback">Callback</option>
                               <option value="live">Completed</option>
                               <option value="lost">Lost</option>
                             </select>
@@ -2687,7 +3340,8 @@ export default function DashboardPage() {
                         <select
                           className={`status-select ${(lead.status === "not_contacted" || lead.status === "created") ? "status-not_contacted" :
                             lead.status === "pending" ? "status-pending" :
-                              (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
+                              lead.status === "callback" ? "status-callback" :
+                                (lead.status === "live" || lead.status === "closed_successful") ? "status-live" : "status-lost"
                             }`}
                           value={lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status}
                           onChange={(e) => handleStatusChange(lead, e.target.value)}
@@ -2696,6 +3350,7 @@ export default function DashboardPage() {
                         >
                           <option value="not_contacted">Not Contacted</option>
                           <option value="pending">Contacted</option>
+                          <option value="callback">Callback</option>
                           <option value="live">Completed</option>
                           <option value="lost">Lost</option>
                         </select>
@@ -2760,6 +3415,33 @@ export default function DashboardPage() {
                         </div>
 
                         <div className="lead-mobile-meta-item">
+                          <span className="lead-mobile-meta-label">Model</span>
+                          {(() => {
+                            const cleanLeadModel = (lead.carModel || '').trim();
+                            return (
+                              <select
+                                className="branch-select"
+                                style={{ width: "100%", maxWidth: "100%" }}
+                                value={cleanLeadModel}
+                                onChange={(e) => handleCarModelChange(lead, e.target.value)}
+                                disabled={isLeadLocked || modelUpdatingId === lead.id}
+                                title={isLeadLocked ? `Locked by ${lead.handledBy}` : `Model: ${cleanLeadModel || "None"}`}
+                              >
+                                <option value="">Select Model</option>
+                                {carModelsList.map((m) => (
+                                  <option key={m.id} value={m.name}>
+                                    {m.name}
+                                  </option>
+                                ))}
+                                {cleanLeadModel && !carModelsList.some(m => m.name.toLowerCase() === cleanLeadModel.toLowerCase()) && (
+                                  <option value={cleanLeadModel}>{cleanLeadModel}</option>
+                                )}
+                              </select>
+                            );
+                          })()}
+                        </div>
+
+                        <div className="lead-mobile-meta-item">
                           <span className="lead-mobile-meta-label">Source / Plat</span>
                           <span className="lead-mobile-meta-val" title={`${plat} ${uploader ? `(${uploader})` : ""}`}>
                             {plat} {uploader ? `(${uploader})` : ""}
@@ -2783,29 +3465,56 @@ export default function DashboardPage() {
 
                       {/* Operational Inputs (Follow-ups, Test Drive, Assigned Consultant) */}
                       <div className="lead-mobile-controls-grid">
-                        <div className="lead-mobile-control-item">
-                          <span className="lead-mobile-meta-label">Follow-Up 1</span>
-                          <input
-                            type="date"
-                            value={toISTDateString(lead.followUpDate1)}
-                            onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate1', e.target.value)}
-                            disabled={isLeadLocked}
-                            className="status-select"
-                            style={{ border: "1px solid var(--border)", background: "#fff", padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6 }}
-                          />
-                        </div>
+                        {(() => {
+                          const fu = getFollowUpInputsState(lead);
+                          return (
+                            <>
+                              <div className="lead-mobile-control-item">
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <span className="lead-mobile-meta-label">Follow-Up {fu.label1}</span>
+                                  {fu.val1 && !isLeadLocked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleFollowUpChange(lead, false, "", fu.step1)}
+                                      title={`Clear follow-up ${fu.label1}`}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        color: "#ef4444",
+                                        cursor: "pointer",
+                                        fontSize: "12px",
+                                        fontWeight: 600,
+                                        padding: "0 2px",
+                                      }}
+                                    >
+                                      Clear
+                                    </button>
+                                  )}
+                                </div>
+                                <input
+                                  type="date"
+                                  value={fu.val1}
+                                  onChange={(e) => handleFollowUpChange(lead, false, e.target.value, fu.step1)}
+                                  disabled={isLeadLocked}
+                                  className="status-select"
+                                  style={{ border: "1px solid var(--border)", background: "#fff", padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6 }}
+                                />
+                              </div>
 
-                        <div className="lead-mobile-control-item">
-                          <span className="lead-mobile-meta-label">Follow-Up 2</span>
-                          <input
-                            type="date"
-                            value={toISTDateString(lead.followUpDate2)}
-                            onChange={(e) => handleFollowUpUpdate(lead, 'followUpDate2', e.target.value)}
-                            disabled={isLeadLocked}
-                            className="status-select"
-                            style={{ border: "1px solid var(--border)", background: "#fff", padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6 }}
-                          />
-                        </div>
+                              <div className="lead-mobile-control-item">
+                                <span className="lead-mobile-meta-label">Follow-Up {fu.label2}</span>
+                                <input
+                                  type="date"
+                                  value={fu.val2}
+                                  onChange={(e) => handleFollowUpChange(lead, true, e.target.value, fu.step2)}
+                                  disabled={isLeadLocked}
+                                  className="status-select"
+                                  style={{ border: "1px solid var(--border)", background: "#fff", padding: "6px 8px", fontSize: "12px", width: "100%", borderRadius: 6 }}
+                                />
+                              </div>
+                            </>
+                          );
+                        })()}
 
                         <div className="lead-mobile-control-item">
                           <span className="lead-mobile-meta-label">Test Drive</span>
@@ -3099,7 +3808,7 @@ export default function DashboardPage() {
                   setTempEndDate(today);
                 }}
               >
-                Today
+                Today ({formatToDDMMYYYY(getTodayISTString())})
               </button>
               <button
                 type="button"
@@ -3110,7 +3819,7 @@ export default function DashboardPage() {
                   setTempEndDate(yest);
                 }}
               >
-                Yesterday
+                Yesterday ({formatToDDMMYYYY(getYesterdayISTString())})
               </button>
               <button
                 type="button"
@@ -3138,7 +3847,7 @@ export default function DashboardPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 24 }}>
               <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
-                  From Date
+                  From Date (DD-MM-YYYY) {tempStartDate ? `• ${formatToDDMMYYYY(tempStartDate)}` : ''}
                 </label>
                 <input
                   type="date"
@@ -3149,7 +3858,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
-                  To Date
+                  To Date (DD-MM-YYYY) {tempEndDate ? `• ${formatToDDMMYYYY(tempEndDate)}` : ''}
                 </label>
                 <input
                   type="date"

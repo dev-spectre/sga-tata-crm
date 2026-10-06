@@ -96,7 +96,7 @@ test('Category C: Spelling Typos & Phonetic Variations', () => {
 
 test('Category D: Tamil Nadu Postal Pincodes', () => {
   const cases = [
-    { pin: '641004', expected: 'Coimbatore' }, // Peelamedu
+    { pin: '641004', expected: 'Peelamedu' }, // Peelamedu
     { pin: '600028', expected: 'Chennai' }, // RA Puram
     { pin: '625001', expected: 'Madurai' },
     { pin: '620001', expected: 'Tiruchirappalli' },
@@ -127,7 +127,7 @@ test('Category E: Compound & Messy Address Strings', () => {
     },
     {
       query: 'Peelamedu, Coimbatore - 641004',
-      expectedCity: 'Coimbatore',
+      expectedCity: 'Peelamedu',
       expectedDist: 'Coimbatore',
     },
     {

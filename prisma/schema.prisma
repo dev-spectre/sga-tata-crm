@@ -13,9 +13,12 @@ model Lead {
   phone              String
   city               String         @default("")
   adname             String         @default("")
+  carModel           String         @default("")
   branch             String         @default("")
   followUpDate1      DateTime?
   followUpDate2      DateTime?
+  followUpCount      Int            @default(0)
+  followUps          LeadFollowUp[]
   remark             String?
   status             String         @default("not_contacted")
   sheetRow           Int?
@@ -40,6 +43,7 @@ model Lead {
   @@index([updatedAt])
   @@index([status])
   @@index([branch])
+  @@index([carModel])
   @@index([fingerprint])
   @@index([isInvalidPhone])
   @@index([isBranchManual])
@@ -163,5 +167,29 @@ model LocationCache {
   @@index([searchTerm])
   @@index([canonicalName])
   @@index([state])
+}
+
+model CarModel {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  code      String   @default("")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model LeadFollowUp {
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  step      Int
+  date      DateTime
+  createdAt DateTime @default(now())
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([date])
 }
 

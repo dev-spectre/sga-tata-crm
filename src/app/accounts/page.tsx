@@ -785,7 +785,7 @@ export default function AccountsPage() {
                         <td>{lead.platform && !/^\d{4}-\d{2}-\d{2}$/.test(lead.platform) ? lead.platform : "Unknown"}</td>
                         <td>
                           <span className={`status-select status-${lead.status === 'created' ? 'not_contacted' : lead.status === 'closed_successful' ? 'live' : lead.status === 'closed_unsuccessful' ? 'lost' : lead.status}`} style={{ display: "inline-block", padding: "2px 6px", fontSize: 12 }}>
-                            {lead.status === 'pending' ? 'Contacted' : (lead.status === 'not_contacted' || lead.status === 'created') ? 'Not Contacted' : (lead.status === 'live' || lead.status === 'closed_successful') ? 'Completed' : (lead.status === 'lost' || lead.status === 'closed_unsuccessful') ? 'Lost' : lead.status.replace("_", " ")}
+                            {lead.status === 'pending' ? 'Contacted' : lead.status === 'callback' ? 'Callback' : (lead.status === 'not_contacted' || lead.status === 'created') ? 'Not Contacted' : (lead.status === 'live' || lead.status === 'closed_successful') ? 'Completed' : (lead.status === 'lost' || lead.status === 'closed_unsuccessful') ? 'Lost' : lead.status.replace("_", " ")}
                           </span>
                         </td>
                         <td>{lead.testDrive || "—"}</td>
