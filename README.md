@@ -8,49 +8,49 @@ A multi-branch lead management CRM for a Tata automotive dealership group — bu
 
 ### Login
 
-![Login](screenshots/login.png)
+![Login](screenshots/login.jpg)
 
 ### Dashboard
 
 Lead KPIs, conversion rate, and the filterable lead table with Tamil Nadu / invalid / outside segmentation.
 
-![Dashboard](screenshots/dashboard.png)
+![Dashboard](screenshots/dashboard.jpg)
 
 ### Branches
 
 Branch management with geofencing coordinates and an active/inactive toggle.
 
-![Branches](screenshots/branches.png)
+![Branches](screenshots/branches.jpg)
 
 ### Consultants
 
 Per-consultant performance and assignment.
 
-![Consultants](screenshots/consultants.png)
+![Consultants](screenshots/consultants.jpg)
 
 ### Activity Log
 
 Audit trail of every status change, remark, and assignment.
 
-![Activity](screenshots/activity.png)
+![Activity](screenshots/activity.jpg)
 
 ### Calendar
 
 Follow-up dates across the month.
 
-![Calendar](screenshots/calendar.png)
+![Calendar](screenshots/calendar.jpg)
 
 ### Settings
 
 Platforms, branches, and notification configuration.
 
-![Settings](screenshots/settings.png)
+![Settings](screenshots/settings.jpg)
 
 ### Accounts
 
 User management with branch- and platform-scoped access.
 
-![Accounts](screenshots/accounts.png)
+![Accounts](screenshots/accounts.jpg)
 
 ## Features
 
