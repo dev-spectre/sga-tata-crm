@@ -7,7 +7,7 @@ export default function Home() {
         <div className="landing-brand">
           <img src="/logo.jpg" alt="SGA Tata CRM" className="landing-logo" />
           <div>
-            <h1>SGA Tata CRM</h1>
+            <h1>SGA Leads Dashboard</h1>
             <p className="landing-tagline">Lead Management for Tata Dealerships</p>
           </div>
         </div>
