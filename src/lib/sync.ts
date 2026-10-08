@@ -3,6 +3,7 @@ import { getSheetData, batchUpdateSheetRows } from '@/lib/google';
 import { parsePhoneNumber, sanitizeField, parseSheetStatus, isInvalidPhoneNumber } from '@/lib/utils';
 import { getCachedSettings } from '@/lib/settings';
 import { resolveLocation } from '@/lib/location/matcher';
+import { isLocationOutsideTamilNadu } from '@/lib/location/out-of-state';
 import { calculateHaversineDistance } from '@/lib/location/routing';
 import { normalizeKey } from '@/lib/location/tn-locations';
 import { getCachedLocationFromMemory, ensureLocationCacheLoaded } from '@/lib/location/cache';
@@ -25,19 +26,19 @@ interface ColumnMapping {
 }
 
 const DEFAULT_MAPPING: ColumnMapping = {
-  name: 0,
-  phone: 1,
-  city: 2,
-  createdAt: 3,
-  remark: 4,
-  status: 5,
-  adname: 6,
+  name: 12,
+  phone: 13,
+  city: 14,
+  createdAt: 1,
+  adname: 3,
+  platform: 11,
+  status: 16,
   carModel: -1,
   branch: -1,
-  followUpDate1: 8,
-  followUpDate2: 9,
-  platform: 10,
-  testDrive: 11,
+  remark: -1,
+  followUpDate1: -1,
+  followUpDate2: -1,
+  testDrive: -1,
   assignedConsultant: -1,
 };
 
@@ -278,6 +279,7 @@ export async function performSheetSync() {
     createdAt: true,
     isBranchManual: true,
     isInvalidPhone: true,
+    isOutOfState: true,
   };
 
   // Primary match key: match by sheetId + sheetRow in current spreadsheet
@@ -500,12 +502,23 @@ export async function performSheetSync() {
         updateData.fingerprint = fingerprint;
       }
 
-      // Branch: map leads to nearest active branch (including out-of-state leads)
+      const outOfState = isLocationOutsideTamilNadu(city);
+      if (existing.isOutOfState !== outOfState) {
+        updateData.isOutOfState = outOfState;
+      }
+      const invalidPhone = isInvalidPhoneNumber(phone);
+      if (existing.isInvalidPhone !== invalidPhone) {
+        updateData.isInvalidPhone = invalidPhone;
+      }
+
+      // Branch: map leads to nearest active branch (out-of-state leads kept unassigned)
       // STRICT INVARIANT: If staff/admin manually set the branch (isBranchManual: true),
       // sync MUST NEVER overwrite existing.branch under ANY circumstance!
       if (!existing.isBranchManual) {
         let resolvedExistingBranch = existing.branch || '';
-        if (mapping.branch !== undefined && mapping.branch >= 0 && branch) {
+        if (outOfState) {
+          resolvedExistingBranch = '';
+        } else if (mapping.branch !== undefined && mapping.branch >= 0 && branch) {
           resolvedExistingBranch = branch;
         } else if (existing.branch && activeBranchLookup.has(existing.branch.toLowerCase().trim())) {
           resolvedExistingBranch = activeBranchLookup.get(existing.branch.toLowerCase().trim())!;
@@ -514,7 +527,7 @@ export async function performSheetSync() {
         } else {
           resolvedExistingBranch = getNearestBranchForCity(city);
         }
-        if (existing.branch !== resolvedExistingBranch && resolvedExistingBranch) {
+        if (existing.branch !== resolvedExistingBranch) {
           updateData.branch = resolvedExistingBranch;
         }
       }
@@ -650,7 +663,8 @@ export async function performSheetSync() {
       }
       duplicates++;
     } else {
-      const assignedBranch = branch || getNearestBranchForCity(city);
+      const outOfState = isLocationOutsideTamilNadu(city);
+      const assignedBranch = outOfState ? '' : (branch || getNearestBranchForCity(city));
       toCreate.push({
         name,
         phone,
@@ -671,6 +685,7 @@ export async function performSheetSync() {
         uploadedById: null,
         fingerprint,
         isInvalidPhone: isInvalidPhoneNumber(phone),
+        isOutOfState: outOfState,
       });
       synced++;
     }

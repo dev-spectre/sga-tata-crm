@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { parsePhoneNumber, sanitizeField } from '@/lib/utils';
+import { parsePhoneNumber, sanitizeField, isInvalidPhoneNumber } from '@/lib/utils';
 import { getCachedSettings } from '@/lib/settings';
 import { checkAndNotify } from '@/lib/notifications';
 import { routeLeadToBranch, logRoutingActivity } from '@/lib/location/routing';
+import { isLocationOutsideTamilNadu } from '@/lib/location/out-of-state';
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
     
     let lead;
     try {
+      const isOutOfStateLead = routingResult ? routingResult.isOutOfState : isLocationOutsideTamilNadu(parsedCity);
       lead = await prisma.lead.create({
         data: {
           name: parsedName,
@@ -84,6 +86,8 @@ export async function POST(request: NextRequest) {
           status: 'pending',
           sheetId,
           fingerprint,
+          isInvalidPhone: isInvalidPhoneNumber(parsedPhone),
+          isOutOfState: isOutOfStateLead,
         },
       });
 

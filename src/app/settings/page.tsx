@@ -28,15 +28,15 @@ interface ColumnOption {
 }
 
 const CRM_SETTINGS_FIELDS = [
-  { key: "name", label: "Customer Name", required: true, icon: "👤", hints: ["name", "full name", "client", "customer", "lead name", "prospect"] },
-  { key: "phone", label: "Phone Number", required: true, icon: "📞", hints: ["phone", "mobile", "contact", "cell", "number", "tel"] },
+  { key: "name", label: "Customer Name", required: true, icon: "👤", hints: ["full name", "client name", "customer name", "lead name", "name"] },
+  { key: "phone", label: "Phone Number", required: true, icon: "📞", hints: ["phone number", "mobile number", "contact number", "contact no", "phone", "mobile", "tel"] },
   { key: "branch", label: "Branch", required: false, icon: "📍", hints: ["branch", "showroom", "outlet", "dealer", "location"] },
   { key: "city", label: "City / Location", required: false, icon: "🏙️", hints: ["city", "town", "place", "district", "address"] },
-  { key: "platform", label: "Platform / Source", required: false, icon: "🌐", hints: ["platform", "source", "channel", "publisher", "medium"] },
-  { key: "adname", label: "Campaign / Ad Name", required: false, icon: "📢", hints: ["ad", "campaign", "ad name", "adset", "creative", "utm"] },
-  { key: "status", label: "Lead Status", required: false, icon: "📊", hints: ["status", "stage", "lead status", "disposition"] },
+  { key: "platform", label: "Platform / Source", required: false, icon: "🌐", hints: ["platform", "source platform", "lead platform", "source", "channel", "publisher"] },
+  { key: "adname", label: "Campaign / Ad Name", required: false, icon: "📢", hints: ["ad name", "campaign name", "adset name", "campaign", "ad"] },
+  { key: "status", label: "Lead Status", required: false, icon: "📊", hints: ["lead status", "status", "stage", "lead stage", "disposition"] },
   { key: "remark", label: "Remark / Notes", required: false, icon: "📝", hints: ["remark", "notes", "comment", "feedback", "description"] },
-  { key: "createdAt", label: "Created Date", required: false, icon: "📅", hints: ["date", "created", "timestamp", "time", "created at"] },
+  { key: "createdAt", label: "Created Date", required: false, icon: "📅", hints: ["created time", "created at", "date", "timestamp", "time"] },
   { key: "followUpDate1", label: "Follow Up Date 1", required: false, icon: "⏰", hints: ["follow up 1", "followup 1", "next follow up 1", "date 1"] },
   { key: "followUpDate2", label: "Follow Up Date 2", required: false, icon: "⏰", hints: ["follow up 2", "followup 2", "next follow up 2", "date 2"] },
 ];
@@ -64,19 +64,19 @@ function SettingsContent() {
   const [sheetPreviewRows, setSheetPreviewRows] = useState<string[][]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  // Column mapping: fieldKey -> columnIndex
+  // Column mapping: fieldKey -> columnIndex (Default matches standard sheet header)
   const [mapping, setMapping] = useState<{ [key: string]: number }>({
-    name: 0,
-    phone: 1,
-    city: 2,
-    createdAt: 3,
-    remark: 4,
-    status: 5,
-    adname: 6,
+    name: 12,
+    phone: 13,
+    city: 14,
+    createdAt: 1,
+    adname: 3,
+    platform: 11,
+    status: 16,
     branch: -1,
-    followUpDate1: 8,
-    followUpDate2: 9,
-    platform: 10,
+    remark: -1,
+    followUpDate1: -1,
+    followUpDate2: -1,
   });
 
   const [userRole, setUserRole] = useState<string>("USER");
@@ -436,19 +436,44 @@ function onFormSubmit(e) {
 
     const normalizedHeaders = sheetHeaders.map((h, i) => ({
       index: i,
-      clean: (h || "").toLowerCase().replace(/[^a-z0-9]/g, " "),
+      clean: (h || "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim(),
     }));
 
     CRM_SETTINGS_FIELDS.forEach((field) => {
       let matchedIndex = -1;
 
+      // Pass 1: Exact matches against hints
       for (const hint of field.hints) {
         const match = normalizedHeaders.find(
-          (h) => !usedCols.has(h.index) && (h.clean === hint || h.clean.includes(hint))
+          (h) => !usedCols.has(h.index) && h.clean === hint
         );
         if (match) {
           matchedIndex = match.index;
           break;
+        }
+      }
+
+      // Pass 2: Word-boundary matches with guardrails against cross-column contamination
+      if (matchedIndex === -1) {
+        for (const hint of field.hints) {
+          const match = normalizedHeaders.find((h) => {
+            if (usedCols.has(h.index)) return false;
+            if (field.key === "name" && (h.clean.includes("ad") || h.clean.includes("campaign") || h.clean.includes("form"))) {
+              return false;
+            }
+            if (field.key === "phone" && (h.clean.includes("status") || h.clean.includes("id"))) {
+              return false;
+            }
+            if (field.key === "status" && h.clean.includes("phone")) {
+              return false;
+            }
+            const regex = new RegExp(`\\b${hint.replace(/\s+/g, '[\\s_]')}\\b`, 'i');
+            return regex.test(h.clean);
+          });
+          if (match) {
+            matchedIndex = match.index;
+            break;
+          }
         }
       }
 

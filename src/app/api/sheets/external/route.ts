@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { getSheetData } from '@/lib/google';
-import { parsePhoneNumber, sanitizeField, parseSheetStatus } from '@/lib/utils';
+import { parsePhoneNumber, sanitizeField, parseSheetStatus, isInvalidPhoneNumber } from '@/lib/utils';
 import { isSuperAdminUser } from '@/lib/activity';
 import { getCachedSettings } from '@/lib/settings';
+import { isLocationOutsideTamilNadu } from '@/lib/location/out-of-state';
 
 export async function POST(request: NextRequest) {
   try {
@@ -226,13 +227,16 @@ export async function POST(request: NextRequest) {
       const rawCarModel = sanitizeField(getVal(row, mapping.carModel));
       const carModel = rawCarModel || '';
 
+      const outOfState = isLocationOutsideTamilNadu(cleanCity);
+      const invalidPhone = isInvalidPhoneNumber(phone);
+
       toCreate.push({
         name: name || 'Unknown',
         phone,
         city: cleanCity,
         adname: sanitizeField(getVal(row, mapping.adname)),
         carModel,
-        branch,
+        branch: outOfState ? '' : branch,
         remark: sanitizeField(getVal(row, mapping.remark)) || null,
         assignedConsultant,
         testDrive,
@@ -244,6 +248,8 @@ export async function POST(request: NextRequest) {
         uploadedAt: new Date(),
         createdAt,
         updatedAt: new Date(),
+        isInvalidPhone: invalidPhone,
+        isOutOfState: outOfState,
       });
 
       synced++;

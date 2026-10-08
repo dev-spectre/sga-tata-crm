@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { resolveLocation } from '@/lib/location/matcher';
-import { isTamilNaduState, isWithinTamilNaduBounds, resolveLocationTiered } from '@/lib/location/geocoder';
+import { isTamilNaduState, isWithinTamilNaduBounds } from '@/lib/location/geocoder';
+import { isLocationOutsideTamilNadu } from '@/lib/location/out-of-state';
 import { calculateHaversineDistance, type BranchCandidate } from '@/lib/location/routing';
 
 export async function POST() {
@@ -41,6 +42,10 @@ export async function POST() {
       );
     }
 
+    const flagshipBranch =
+      validBranches.find((b) => b.name.toLowerCase().includes('singanallur')) ||
+      validBranches[0];
+
     // 2. Pre-fetch LocationCache into memory for fast lookup
     const cacheRows = await prisma.locationCache.findMany({
       select: {
@@ -72,10 +77,11 @@ export async function POST() {
     });
 
     const branchToLeadIds = new Map<string, number[]>();
-    branchToLeadIds.set('', []);
     for (const b of validBranches) {
       branchToLeadIds.set(b.name, []);
     }
+    const outOfStateLeadIds: number[] = [];
+    const unassignedTnLeadIds: number[] = [];
 
     let assignedCount = 0;
     let outOfStateCount = 0;
@@ -85,8 +91,16 @@ export async function POST() {
     for (const lead of leads) {
       const rawCity = (lead.city || '').trim();
       if (!rawCity) {
-        branchToLeadIds.get('')!.push(lead.id);
-        unresolvableCount++;
+        // Lead in dealership territory with no specific city -> assign to flagship branch
+        branchToLeadIds.get(flagshipBranch.name)!.push(lead.id);
+        assignedCount++;
+        continue;
+      }
+
+      // Check general out-of-state detection first
+      if (isLocationOutsideTamilNadu(rawCity)) {
+        outOfStateLeadIds.push(lead.id);
+        outOfStateCount++;
         continue;
       }
 
@@ -94,7 +108,7 @@ export async function POST() {
       const cached = cacheMap.get(rawCity.toLowerCase());
       let lat: number | null = null;
       let lon: number | null = null;
-      let isTn = false;
+      let isTn = true;
 
       if (cached) {
         lat = cached.lat;
@@ -114,8 +128,7 @@ export async function POST() {
 
       if (lat !== null && lon !== null) {
         if (!isTn) {
-          // Out of state: keep unassigned
-          branchToLeadIds.get('')!.push(lead.id);
+          outOfStateLeadIds.push(lead.id);
           outOfStateCount++;
         } else {
           // In Tamil Nadu: find nearest branch across all of Tamil Nadu
@@ -123,7 +136,7 @@ export async function POST() {
           let closestBranch = validBranches[0].name;
 
           for (const b of validBranches) {
-            const dist = calculateHaversineDistance(lat, lon, b.latitude, b.longitude);
+            const dist = calculateHaversineDistance(lat, lon, b.latitude!, b.longitude!);
             if (dist < minDistance) {
               minDistance = dist;
               closestBranch = b.name;
@@ -134,25 +147,39 @@ export async function POST() {
           assignedCount++;
         }
       } else {
-        // City unresolvable via local dictionary and cache
-        branchToLeadIds.get('')!.push(lead.id);
+        // City not in cache or dict, but inside dealership territory -> route to flagship branch
+        branchToLeadIds.get(flagshipBranch.name)!.push(lead.id);
+        assignedCount++;
         unresolvableCount++;
       }
     }
 
-    // 5. Bulk execute updates in PostgreSQL grouped by target branch
+    // 5. Bulk execute updates in PostgreSQL
     const distribution: Record<string, number> = {};
     const CHUNK_SIZE = 1000;
 
+    // A. Update Tamil Nadu leads mapped to branches
     for (const [branchName, ids] of branchToLeadIds.entries()) {
-      distribution[branchName || 'Unassigned (Out of State / Unknown)'] = ids.length;
+      distribution[branchName] = ids.length;
       if (ids.length === 0) continue;
 
       for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
         const chunk = ids.slice(i, i + CHUNK_SIZE);
         await prisma.lead.updateMany({
           where: { id: { in: chunk } },
-          data: { branch: branchName },
+          data: { branch: branchName, isOutOfState: false },
+        });
+      }
+    }
+
+    // B. Update Out of State leads
+    distribution['Outside Tamil Nadu (Unassigned)'] = outOfStateLeadIds.length;
+    if (outOfStateLeadIds.length > 0) {
+      for (let i = 0; i < outOfStateLeadIds.length; i += CHUNK_SIZE) {
+        const chunk = outOfStateLeadIds.slice(i, i + CHUNK_SIZE);
+        await prisma.lead.updateMany({
+          where: { id: { in: chunk } },
+          data: { branch: '', isOutOfState: true },
         });
       }
     }
