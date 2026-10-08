@@ -40,6 +40,8 @@ interface Lead {
   uploadedBy?: { id?: number; username: string } | null;
   uploadedAt?: string | null;
   isBranchManual?: boolean;
+  isOutOfState?: boolean;
+  isInvalidPhone?: boolean;
   updatedAt?: string;
 }
 
@@ -183,7 +185,7 @@ const getFollowUpInputsState = (lead: Lead) => {
 const PAGE_SIZE = 20;
 
 // Persistent in-memory client caches (persists across page navigations in the same session)
-const globalDashboardPageCache: Record<string, { [page: number]: Lead[]; total?: number; stats?: Stats; timestamp?: number }> = {};
+const globalDashboardPageCache: Record<string, { [page: number]: Lead[]; total?: number; stats?: Stats; timestamp?: number; maxUpdatedAt?: string }> = {};
 let cachedBranchesList: string[] | null = null;
 let cachedConsultantsList: ConsultantItem[] | null = null;
 let cachedCarModelsList: CarModelItem[] | null = null;
@@ -642,7 +644,8 @@ export default function DashboardPage() {
       const currentPage = pagination.page;
 
       const cachedFilter = globalDashboardPageCache[filterKey];
-      const cachedPage = cachedFilter?.[currentPage];
+      const isCacheFresh = Boolean(cachedFilter && cachedFilter.timestamp && (Date.now() - cachedFilter.timestamp < 30000));
+      const cachedPage = isCacheFresh ? cachedFilter?.[currentPage] : undefined;
 
       if (cachedPage && !force) {
         setAccessRestricted(false);
@@ -657,10 +660,14 @@ export default function DashboardPage() {
             return prev;
           });
         }
+        if (cachedFilter.maxUpdatedAt) {
+          lastSyncTimestampRef.current = cachedFilter.maxUpdatedAt;
+        }
         setLoading(false);
         return;
       }
 
+      setLoading(true);
       isFetchingRef.current = true;
 
       const requestParams = new URLSearchParams(filterKey);
@@ -692,6 +699,9 @@ export default function DashboardPage() {
         const incomingLeads = data.leads || [];
         globalDashboardPageCache[filterKey][currentPage] = incomingLeads;
         globalDashboardPageCache[filterKey].timestamp = Date.now();
+        if (data.maxUpdatedAt) {
+          globalDashboardPageCache[filterKey].maxUpdatedAt = data.maxUpdatedAt;
+        }
 
         if (data.stats) {
           globalDashboardPageCache[filterKey].stats = data.stats;
@@ -741,7 +751,7 @@ export default function DashboardPage() {
         isFetchingRef.current = false;
       }
     }
-  }, [pagination.page, search, statusFilter, branchFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, category]);
+  }, [pagination.page, search, statusFilter, branchFilter, carModelFilter, consultantFilter, testDriveFilter, uploaderFilter, platformFilter, startDate, endDate, primaryOrder, category]);
 
 
   const filterStateRef = useRef({
@@ -869,32 +879,16 @@ export default function DashboardPage() {
           for (const cl of data.changedLeads) {
             patchLeadInCache(cl);
           }
+        }
 
-          // If on page 1 and there are TRULY NEW incoming leads (created since previous sync), prepend them in-place
-          const prevSyncTime = prevSyncTimeStr ? new Date(prevSyncTimeStr).getTime() - 5000 : 0;
-          setLeads(prevLeads => {
-            const existingIds = new Set(prevLeads.map(l => l.id));
-            const newlyCreatedLeads = data.changedLeads.filter((l: Lead) => {
-              if (existingIds.has(l.id)) return false;
-              if (!l.createdAt) return false;
-              const createdTime = new Date(l.createdAt).getTime();
-              return prevSyncTime > 0 && createdTime >= prevSyncTime;
-            });
-
-            if (newlyCreatedLeads.length > 0 && filterStateRef.current.page === 1 && primaryOrder === 'desc') {
-              newlyCreatedLeads.sort((a: Lead, b: Lead) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-              return [...newlyCreatedLeads, ...prevLeads].slice(0, filterStateRef.current.limit || PAGE_SIZE);
-            }
-
-            return prevLeads;
-          });
-
-          // Update pagination total if count changed
-          if (data.count !== undefined && data.count !== filterStateRef.current.total) {
-            setPagination(p => ({ ...p, total: data.count, totalPages: Math.ceil(data.count / p.limit) }));
-          }
-        } else if (data.count !== undefined && data.count !== filterStateRef.current.total) {
+        // 3. Update pagination total and refetch page 1 cleanly if new leads were added
+        if (data.count !== undefined && data.count !== filterStateRef.current.total) {
+          const oldCount = filterStateRef.current.total;
           setPagination(p => ({ ...p, total: data.count, totalPages: Math.ceil(data.count / p.limit) }));
+          // If genuinely new leads were added and user is on page 1, refetch page 1 cleanly with authoritative server ordering
+          if (data.count > oldCount && filterStateRef.current.page === 1) {
+            fetchLeads(true);
+          }
         }
       } catch {
         // silently ignore check errors
@@ -967,6 +961,8 @@ export default function DashboardPage() {
     if (category === newCat) return;
     setCategory(newCat);
     setPagination(p => ({ ...p, page: 1 }));
+    setLoading(true);
+    lastSyncTimestampRef.current = "";
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       if (newCat === "valid") {
@@ -1042,12 +1038,17 @@ export default function DashboardPage() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(data.updated) && data.updated.length > 0) {
         for (const item of data.updated) {
-          patchLeadInCache({ id: item.id, branch: item.branch });
+          patchLeadInCache({ id: item.id, branch: item.branch, isOutOfState: item.isOutOfState });
         }
-        showToast(`Auto-assigned ${data.updated.length} visible lead(s) to nearest branches!`, "success");
+        const assignedCount = data.updated.filter((u: any) => u.branch).length;
+        const outOfStateCount = data.updated.filter((u: any) => u.isOutOfState).length;
+        const parts: string[] = [];
+        if (assignedCount > 0) parts.push(`Auto-assigned ${assignedCount} visible lead(s) to nearest branches`);
+        if (outOfStateCount > 0) parts.push(`flagged ${outOfStateCount} out-of-state lead(s)`);
+        showToast(parts.join(', ') || `Processed ${data.updated.length} lead(s)!`, "success");
         await fetchLeads(true);
       } else if (res.ok) {
-        showToast("All visible leads have valid branches assigned.", "success");
+        showToast("Could not resolve branches for visible leads (unrecognized location or missing address).", "error");
         await fetchLeads(true);
       } else {
         showToast(data.error || "Failed to auto-assign branches", "error");
@@ -1095,7 +1096,7 @@ export default function DashboardPage() {
         if (!isMounted) return;
         if (data && Array.isArray(data.updated) && data.updated.length > 0) {
           for (const item of data.updated) {
-            patchLeadInCache({ id: item.id, branch: item.branch });
+            patchLeadInCache({ id: item.id, branch: item.branch, isOutOfState: item.isOutOfState });
           }
         }
       })
@@ -1274,44 +1275,7 @@ export default function DashboardPage() {
 
   const displayedLeads = useMemo(() => {
     let result = leads;
-    if (branchFilter) {
-      const branchTokens = branchFilter.split(',').map(b => b.toLowerCase().trim()).filter(Boolean);
-      if (branchTokens.length > 0) {
-        result = result.filter(l => {
-          if (!l.branch) return false;
-          const leadBranches = parseBranches(l.branch).map(b => b.toLowerCase().trim());
-          const cleanLeadBranch = l.branch.toLowerCase().trim();
-          return branchTokens.some(bt => leadBranches.includes(bt) || cleanLeadBranch === bt || cleanLeadBranch.includes(bt));
-        });
-      }
-    }
-    if (!result || result.length === 0) return result;
-
-    const branchSet = new Set(branches.map(b => b.toLowerCase().trim()));
-
-    // Frontend Category Filtering: compute categories on loaded leads
-    if (category === "valid") {
-      result = result.filter(l => classifyLead(l, branchSet) === "valid");
-    } else if (category === "invalid") {
-      result = result.filter(l => classifyLead(l, branchSet) === "invalid");
-    } else if (category === "outside") {
-      result = result.filter(l => classifyLead(l, branchSet) === "outside");
-    } else if (category === "priority") {
-      const todayStr = getTodayISTString();
-      result = result.filter(l => {
-        if (classifyLead(l, branchSet) !== "valid") return false;
-        const fus = getLeadFollowUps(l);
-        if (fus.length > 0) {
-          return fus.some(f => {
-            const dt = toISTDateString(f.date);
-            return dt && dt <= todayStr;
-          });
-        }
-        const f1 = toISTDateString(l.followUpDate1);
-        const f2 = toISTDateString(l.followUpDate2);
-        return Boolean((f1 && f1 <= todayStr) || (f2 && f2 <= todayStr));
-      });
-    }
+    if (!result || result.length === 0) return [];
 
     const list = [...result];
 
@@ -1347,11 +1311,14 @@ export default function DashboardPage() {
       // Tie-breaker for same day: exact createdAt timestamp
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return primaryOrder === "desc" ? timeB - timeA : timeA - timeB;
+      if (timeA !== timeB) {
+        return primaryOrder === "desc" ? timeB - timeA : timeA - timeB;
+      }
+      return primaryOrder === "desc" ? (b.id || 0) - (a.id || 0) : (a.id || 0) - (b.id || 0);
     });
 
     return list;
-  }, [leads, branchFilter, branches, category, secondaryField, secondaryOrder, primaryOrder]);
+  }, [leads, secondaryField, secondaryOrder, primaryOrder]);
 
   const handleExportExcel = async () => {
     setExportLoading(true);
@@ -1484,7 +1451,12 @@ export default function DashboardPage() {
         return secondaryOrder === "asc" ? strA.localeCompare(strB) : strB.localeCompare(strA);
       }
 
-      return 0;
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeA !== timeB) {
+        return primaryOrder === "desc" ? timeB - timeA : timeA - timeB;
+      }
+      return primaryOrder === "desc" ? (b.id || 0) - (a.id || 0) : (a.id || 0) - (b.id || 0);
     });
 
     if (exportLeads.length === 0) {
@@ -1692,7 +1664,12 @@ export default function DashboardPage() {
         return secondaryOrder === "asc" ? strA.localeCompare(strB) : strB.localeCompare(strA);
       }
 
-      return 0;
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeA !== timeB) {
+        return primaryOrder === "desc" ? timeB - timeA : timeA - timeB;
+      }
+      return primaryOrder === "desc" ? (b.id || 0) - (a.id || 0) : (a.id || 0) - (b.id || 0);
     });
 
     if (exportLeads.length === 0) {

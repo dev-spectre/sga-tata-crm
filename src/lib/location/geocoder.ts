@@ -1,6 +1,7 @@
 import { prisma } from '../prisma';
 import { resolveLocation } from './matcher';
 import { normalizeKey } from './tn-locations';
+import { isLocationOutsideTamilNadu } from './out-of-state';
 import {
   ensureLocationCacheLoaded,
   getCachedLocationFromMemory,
@@ -264,8 +265,8 @@ export async function resolveLocationTiered(
     };
   }
 
-  // If query is an out-of-state pincode, return early as outside TN
-  if (exactDictResult.isOutOfState) {
+  // If query is an out-of-state pincode or confirmed out-of-state location, return early as outside TN
+  if (exactDictResult.isOutOfState || isLocationOutsideTamilNadu(query)) {
     return {
       matched: true,
       query,
@@ -356,8 +357,74 @@ export async function resolveLocationTiered(
     }
   }
 
-  // If external network lookup skipped, exit early
-  if (options?.skipExternal) {
+  // ----------------------------------------------------
+  // Tier 2.5: Smart Misspelling & Phonetic Fallback for Tamil Nadu Locations (< 0.1ms)
+  // Evaluates local dictionary with typo & transliteration tolerance BEFORE making external network calls
+  // ----------------------------------------------------
+  const fuzzyResult = resolveLocation(query);
+  if (fuzzyResult.isOutOfState) {
+    return {
+      matched: true,
+      query,
+      canonicalName: query,
+      district: '',
+      state: 'Outside Tamil Nadu',
+      latitude: 0,
+      longitude: 0,
+      source: 'none',
+      confidence: 1.0,
+      isTamilNadu: false,
+    };
+  }
+
+  if (fuzzyResult.matched) {
+    if (searchKey) {
+      setCachedLocation(searchKey, {
+        canonicalName: fuzzyResult.canonicalName,
+        district: fuzzyResult.district,
+        state: 'Tamil Nadu',
+        latitude: fuzzyResult.latitude,
+        longitude: fuzzyResult.longitude,
+        source: 'dictionary',
+        isTamilNadu: true,
+      }).catch((cacheErr) => {
+        console.warn('LocationCache save warning:', cacheErr);
+      });
+    }
+
+    return {
+      matched: true,
+      query,
+      canonicalName: fuzzyResult.canonicalName,
+      district: fuzzyResult.district,
+      state: 'Tamil Nadu',
+      latitude: fuzzyResult.latitude,
+      longitude: fuzzyResult.longitude,
+      source: 'dictionary',
+      confidence: fuzzyResult.confidence,
+      isTamilNadu: true,
+    };
+  }
+
+  // ----------------------------------------------------
+  // Guard against making external network calls for junk, noise, or short abbreviations
+  // ----------------------------------------------------
+  const lowerQuery = query.toLowerCase().trim();
+  const NOISE_LOOKUP_WORDS = new Set([
+    'city', 'town', 'twon', 'village', 'post', 'area', 'near', 'na', 'n/a',
+    'null', 'nil', 'none', 'test', 'yes', 'no', 'unknown', 'am', 'pm'
+  ]);
+  const OUT_OF_STATE_ABBRS = new Set([
+    'up', 'mp', 'ap', 'wb', 'kl', 'ka', 'mh', 'gj', 'rj', 'hr', 'pb', 'dl', 'ts', 'uk', 'hp', 'jk'
+  ]);
+
+  if (
+    options?.skipExternal ||
+    NOISE_LOOKUP_WORDS.has(lowerQuery) ||
+    (lowerQuery.length <= 2 && !OUT_OF_STATE_ABBRS.has(lowerQuery)) ||
+    /(.)\1{4,}/.test(lowerQuery) ||
+    (lowerQuery.length > 25 && !/\s/.test(lowerQuery))
+  ) {
     return {
       matched: false,
       query,
@@ -420,40 +487,6 @@ export async function resolveLocationTiered(
     }
   } catch (err) {
     console.error('External geocoding error:', err);
-  }
-
-  // ----------------------------------------------------
-  // Tier 3.5: Smart Misspelling Fallback for Typo-Tolerant Tamil Nadu Locations
-  // If external geocoder didn't resolve the string (e.g. typos like "Coimbatoor", "Saravanampati")
-  // ----------------------------------------------------
-  const fuzzyResult = resolveLocation(query);
-  if (fuzzyResult.matched) {
-    if (searchKey) {
-      setCachedLocation(searchKey, {
-        canonicalName: fuzzyResult.canonicalName,
-        district: fuzzyResult.district,
-        state: 'Tamil Nadu',
-        latitude: fuzzyResult.latitude,
-        longitude: fuzzyResult.longitude,
-        source: 'dictionary',
-        isTamilNadu: true,
-      }).catch((cacheErr) => {
-        console.warn('LocationCache save warning:', cacheErr);
-      });
-    }
-
-    return {
-      matched: true,
-      query,
-      canonicalName: fuzzyResult.canonicalName,
-      district: fuzzyResult.district,
-      state: 'Tamil Nadu',
-      latitude: fuzzyResult.latitude,
-      longitude: fuzzyResult.longitude,
-      source: 'dictionary',
-      confidence: fuzzyResult.confidence,
-      isTamilNadu: true,
-    };
   }
 
   // ----------------------------------------------------

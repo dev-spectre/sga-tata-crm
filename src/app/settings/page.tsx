@@ -74,7 +74,7 @@ function SettingsContent() {
     platform: 11,
     status: 16,
     branch: -1,
-    remark: -1,
+    remark: 17,
     followUpDate1: -1,
     followUpDate2: -1,
   });

@@ -35,7 +35,7 @@ const DEFAULT_MAPPING: ColumnMapping = {
   status: 16,
   carModel: -1,
   branch: -1,
-  remark: -1,
+  remark: 17,
   followUpDate1: -1,
   followUpDate2: -1,
   testDrive: -1,
@@ -550,11 +550,10 @@ export async function performSheetSync() {
         }
       }
 
-      // Remark: update if mapped (or unmapped -> null)
-      if (mapping.remark !== undefined) {
-        const targetRemark = mapping.remark >= 0 ? remark : null;
-        if (existing.remark !== targetRemark) {
-          updateData.remark = targetRemark;
+      // Remark: update if mapped and sheet has value; preserve CRM remarks if sheet is blank or unmapped
+      if (mapping.remark !== undefined && mapping.remark >= 0 && remark !== null && remark !== '') {
+        if (existing.remark !== remark) {
+          updateData.remark = remark;
         }
       }
 

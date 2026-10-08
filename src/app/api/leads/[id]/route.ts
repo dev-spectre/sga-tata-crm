@@ -317,7 +317,7 @@ export async function PATCH(
             : { remark: 7, status: 8 };
           
           const updates: { col: number; value: string }[] = [];
-          if (remark !== undefined && mapping.remark !== undefined) {
+          if (remark !== undefined && mapping.remark !== undefined && mapping.remark >= 0) {
             updates.push({ col: mapping.remark, value: remark });
           }
           if (status !== undefined && mapping.status !== undefined) {

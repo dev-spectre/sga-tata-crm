@@ -326,27 +326,22 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const validBranchCondition: any = {
-      branch: { in: activeBranchNames },
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const unassignedBranchCondition: any = {
-      branch: { notIn: activeBranchNames },
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const validPhoneCondition: any = {
       isInvalidPhone: false,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const invalidPhoneCondition: any = {
       isInvalidPhone: true,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inStateCondition: any = {
+      isOutOfState: false,
+    };
+
+    const outOfStateCondition: any = {
+      isOutOfState: true,
+    };
+
     const priorityFollowUpCondition: any = {
       OR: [
         { followUpDate1: { lte: todayEndOfDay, not: null } },
@@ -388,7 +383,7 @@ export async function GET(request: NextRequest) {
       where.AND = [
         ...(where.AND || []),
         validPhoneCondition,
-        validBranchCondition,
+        inStateCondition,
       ];
     } else if (category === 'invalid') {
       where.AND = [
@@ -399,13 +394,13 @@ export async function GET(request: NextRequest) {
       where.AND = [
         ...(where.AND || []),
         validPhoneCondition,
-        unassignedBranchCondition,
+        outOfStateCondition,
       ];
     } else if (category === 'priority') {
       where.AND = [
         ...(where.AND || []),
         validPhoneCondition,
-        validBranchCondition,
+        inStateCondition,
         priorityFollowUpCondition,
       ];
     }
@@ -478,6 +473,8 @@ export async function GET(request: NextRequest) {
               },
               uploadedAt: true,
               isBranchManual: true,
+              isOutOfState: true,
+              isInvalidPhone: true,
               createdAt: true,
               updatedAt: true,
             },
@@ -498,7 +495,7 @@ export async function GET(request: NextRequest) {
               AND: [
                 ...(statsWhere.AND || []),
                 validPhoneCondition,
-                validBranchCondition,
+                inStateCondition,
               ],
             },
           }),
@@ -519,7 +516,7 @@ export async function GET(request: NextRequest) {
               AND: [
                 ...(statsWhere.AND || []),
                 validPhoneCondition,
-                unassignedBranchCondition,
+                outOfStateCondition,
               ],
             },
           }),
@@ -534,7 +531,7 @@ export async function GET(request: NextRequest) {
               AND: [
                 ...(statsWhere.AND || []),
                 validPhoneCondition,
-                validBranchCondition,
+                inStateCondition,
                 priorityFollowUpCondition,
               ],
             },

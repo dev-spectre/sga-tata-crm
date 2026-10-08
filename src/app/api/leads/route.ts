@@ -27,10 +27,9 @@ export async function GET(request: NextRequest) {
 
     const primaryOrder = (searchParams.get('primaryOrder') || searchParams.get('primarySort') || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
 
-    let secondaryField = searchParams.get('secondaryField') || searchParams.get('sortBy') || searchParams.get('sortField') || 'name';
-    if (secondaryField === 'createdAt' || secondaryField === 'date') {
-      secondaryField = 'name';
-    }
+    const rawSecondaryField = searchParams.get('secondaryField') || searchParams.get('sortBy') || searchParams.get('sortField') || '';
+    const validFields = ['name', 'city', 'adname', 'carModel', 'branch', 'status', 'phone', 'followUpDate1', 'followUpDate2'];
+    const secondaryField = validFields.includes(rawSecondaryField) && rawSecondaryField !== 'createdAt' && rawSecondaryField !== 'date' ? rawSecondaryField : '';
 
     const rawSecondaryOrder = searchParams.get('secondaryOrder') || searchParams.get('sortOrder') || searchParams.get('sort') || 'asc';
     const secondaryOrder: 'asc' | 'desc' = rawSecondaryOrder.toLowerCase() === 'desc' ? 'desc' : 'asc';
@@ -55,15 +54,14 @@ export async function GET(request: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
     const skip = (page - 1) * limit;
 
-    const validFields = ['name', 'city', 'adname', 'carModel', 'branch', 'status', 'phone', 'followUpDate1', 'followUpDate2'];
-    if (!validFields.includes(secondaryField)) {
-      secondaryField = 'name';
-    }
-
-    const orderBy = [
+    const orderBy: any[] = [
       { createdAt: primaryOrder as 'asc' | 'desc' },
-      { [secondaryField]: secondaryOrder },
     ];
+    if (secondaryField) {
+      orderBy.push({ [secondaryField]: secondaryOrder });
+    }
+    // Deterministic tie-breaker so order never changes randomly across updates or queries
+    orderBy.push({ id: primaryOrder as 'asc' | 'desc' });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const statsWhere: any = {};

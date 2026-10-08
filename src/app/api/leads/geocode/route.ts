@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { routeLeadToBranchFast, logRoutingActivity } from '@/lib/location/routing';
+import { routeLeadToBranch, routeLeadToBranchFast, logRoutingActivity } from '@/lib/location/routing';
 import { getActiveBranchesCached } from '@/lib/location/cache';
 import { resolveLocation } from '@/lib/location/matcher';
 
@@ -57,12 +57,15 @@ export async function POST(request: NextRequest) {
         city: true,
         branch: true,
         isBranchManual: true,
+        isOutOfState: true,
       },
     });
 
-    const updated: { id: number; branch: string }[] = [];
+    const updated: { id: number; branch: string; isOutOfState?: boolean }[] = [];
 
-    // 3. Process leads rapidly using fast in-memory routing (< 1ms per lead)
+    // 3. Process leads using tiered routing:
+    // First fast in-memory resolution (exact, cache, phonetic/fuzzy).
+    // If user clicked Auto Assign (force: true) and unresolved, fallback to external geocode.
     for (const lead of targetLeads) {
       // Do not overwrite manual branch unless explicitly forced
       if (lead.isBranchManual && !force) {
@@ -78,31 +81,60 @@ export async function POST(request: NextRequest) {
       }
 
       const cleanCity = (lead.city || '').trim();
+      if (!cleanCity) {
+        continue;
+      }
 
       try {
-        const routeRes = await routeLeadToBranchFast(cleanCity, {
+        let routeRes = await routeLeadToBranchFast(cleanCity, {
           candidateBranches: activeBranches,
         });
 
-        const targetBranch =
-          routeRes.status === 'assigned' && routeRes.assignedBranch
-            ? routeRes.assignedBranch.name
-            : '';
-
-        if (targetBranch !== (lead.branch || '')) {
-          await prisma.lead.update({
-            where: { id: lead.id },
-            data: { branch: targetBranch },
+        // If fast resolution was unresolved and this is a forced/manual auto-assign,
+        // attempt external network geocoding (Nominatim / Google)
+        if (routeRes.status === 'unresolved' && force) {
+          routeRes = await routeLeadToBranch(cleanCity, {
+            candidateBranches: activeBranches,
+            skipExternalGeocode: false,
           });
+        }
 
-          logRoutingActivity(lead.id, routeRes, currentUser.username || 'System').catch(
-            console.error
-          );
+        if (routeRes.status === 'assigned' && routeRes.assignedBranch) {
+          const targetBranch = routeRes.assignedBranch.name;
+          if (targetBranch !== (lead.branch || '') || lead.isOutOfState) {
+            await prisma.lead.update({
+              where: { id: lead.id },
+              data: {
+                branch: targetBranch,
+                isOutOfState: false,
+              },
+            });
 
-          updated.push({ id: lead.id, branch: targetBranch });
+            logRoutingActivity(lead.id, routeRes, currentUser.username || 'System').catch(
+              console.error
+            );
+
+            updated.push({ id: lead.id, branch: targetBranch, isOutOfState: false });
+          }
+        } else if (routeRes.status === 'out_of_state' || routeRes.isOutOfState) {
+          if (!lead.isOutOfState || (lead.branch && lead.branch !== '')) {
+            await prisma.lead.update({
+              where: { id: lead.id },
+              data: {
+                branch: '',
+                isOutOfState: true,
+              },
+            });
+
+            logRoutingActivity(lead.id, routeRes, currentUser.username || 'System').catch(
+              console.error
+            );
+
+            updated.push({ id: lead.id, branch: '', isOutOfState: true });
+          }
         }
       } catch (leadErr) {
-        console.warn(`Fast routing error for lead ${lead.id}:`, leadErr);
+        console.warn(`Routing error for lead ${lead.id}:`, leadErr);
       }
     }
 
